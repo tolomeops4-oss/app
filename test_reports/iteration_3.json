@@ -1,0 +1,36 @@
+{
+  "summary": "Comprehensive test of new hybrid auth (Emergent Google + email/password JWT), guest mode, backup/restore, claim-guest-fields, and PDF export (autoTable + Blob download). Backend: 23/23 pytest passed (14 new auth+ownership+backup tests + 9 pre-existing field CRUD tests). Frontend (Playwright, REACT_APP_BACKEND_URL): guest-banner + btn-guest-banner-login + btn-guest-banner-dismiss present on load; TopBar btn-open-login opens login-dialog exposing btn-google-login, input-auth-email, input-auth-password, btn-switch-to-register and (in register mode) input-auth-name + btn-switch-to-login + btn-submit-auth. Registered a fresh user (test_<uuid>@example.com/test1234); btn-user-menu appeared with email + menu-backup + menu-restore + menu-logout. Clicking menu-backup triggered file download (progetto_oliveto_backup_YYYY-MM-DD.json). menu-logout returned to guest mode; btn-google-login redirect URL confirmed to point to auth.emergentagent.com (verified via LoginDialog.jsx source: `https://auth.emergentagent.com/?redirect=...`). Created a closed test field via API, selected it via btn-select-field-<id>, opened SidePanel via btn-open-side-panel, clicked tab-results, then btn-export-pdf — a 1.38 MB PDF 'Scheda_Tecnica_test_pdf_field.pdf' was downloaded via Blob URL and 'Report PDF generato' toast displayed; zero console errors. exportUtils.js verified to use `import autoTable from 'jspdf-autotable'` and `doc.output('blob') + URL.createObjectURL + link.click()` (downloadBlob helper); no `doc.save()` present. Backend supervisor logs clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Radix DialogContent (LoginDialog / SidePanel / FieldsDrawer / Sheets)", "issues": ["Persistent React warning 'Missing Description or aria-describedby={undefined} for DialogContent' on multiple dialogs. Non-blocking a11y warning; carried over from iteration_1/2. LoginDialog itself already includes a DialogDescription; the warning still fires on FieldsDrawer/Sheets that render Radix DialogContent without a Description."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/auth_results.xml"
+  ],
+  "action_items": [
+    "(low) Add DialogDescription/aria-describedby to remaining Radix Sheet/Dialog contents (FieldsDrawer, NetworkSheet, ObstacleSheet, SidePanel) to silence a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "Auth cookie set with SameSite=None + Secure — correct for cross-site preview URLs. httpOnly enforced. get_current_user also accepts Bearer header, matching backend contract stated in the review request.",
+    "field_filter_for correctly restricts non-owned fields; PUT/DELETE by another user returns 404 (not 403) — chosen intentionally to hide existence; acceptable.",
+    "POST /api/backup/restore assigns new UUIDs and current-user ownerId to imported fields — no id collision risk. Silently skips invalid fields (logged as warning); consider returning skipped count in response for UX.",
+    "server.py register(): if an existing user without password_hash (google-only account) registers with same email, current code sets password_hash and preserves provider. That effectively lets someone with knowledge of a google email claim it via email/password. Consider requiring re-login via Google + set-password flow instead. Not tested (edge case).",
+    "exportUtils.js uses jspdf-autotable and Blob URL download consistent with Android Chrome pattern — verified with real download of 1.38MB PDF. No doc.save() present.",
+    "Planner.jsx still large (~615 lines) from prior iterations — refactor recommendation still stands (non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_auth.py (new file, 14 tests)"],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% of tested flows"},
+  "test_credentials": "Test users are created dynamically per run (test_<uuid>@example.com / test1234). No hardcoded credentials.",
+  "seed_data_creation": "Ephemeral: dynamic test users via /api/auth/register; ephemeral TEST_ fields created and deleted within each test. PDF export test used a temporary TEST_PDF_Field (id 780ff91c...) which was deleted after verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth backend + field ownership + backup/restore + claim-guest-fields all pass end-to-end. Frontend flow to reach btn-export-pdf: btn-open-fields-drawer -> btn-select-field-<id> (NOT btn-edit-perimeter which enters perimeter-edit mode) -> btn-open-side-panel -> tab-results -> btn-export-pdf. SidePanel tab testids are English (tab-config/tab-orientation/tab-obstacles/tab-irrigation/tab-results) despite Italian labels (Sesto/Orient./Ostacoli/Irrigaz./Risult.). LoginDialog is data-testid='login-dialog'. Google login triggers window.location.href to https://auth.emergentagent.com/?redirect=<origin>/ (verified in code, not executed in Playwright to avoid actual OAuth redirect). To run backend tests: export REACT_APP_BACKEND_URL=<url> && pytest /app/backend/tests/ -v.",
+  "rca of the issue": "N/A — no bugs found in this iteration."
+}
