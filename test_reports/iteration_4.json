@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only testing of new Wizard (Guidata) mode with 5 steps + toggle Guidata/Libera in Progetto Oliveto. All 12 review scenarios verified via Playwright. Wizard is active by default, steps 2-5 locked until perimeter closes, drawing then closing perimeter auto-advances to step 2, all QuickBig +/- controls update values, obstacle sheet opens from step 3, optimize azimuth shows toast, save flushes with success toast, PDF/GeoJSON buttons present, collapse toggles content, toggle to Libera hides wizard and shows Toolbar with all 9 Italian toolbar buttons. Backend not tested (no changes per request).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ObstacleSheet (Dialog)", "issues": ["Console warning: Missing Description or aria-describedby for DialogContent (a11y warning, not blocking)"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: add DialogDescription (or aria-describedby) to ObstacleSheet/NetworkSheet DialogContent to remove the Radix a11y console warning."
+  ],
+  "critical_code_review_comments": [
+    "Planner.jsx is 891 lines — could be split (drawing/wizard/backup/exports concerns) for maintainability.",
+    "In WizardPanel, `canNext` hides the Next button on step 5 which is fine, but on step 1 with an unclosed perimeter it also hides Next entirely; consider showing it disabled with a tooltip explaining why so users understand the flow.",
+    "QuickBig uses toFixed based on step<0.5 → for step=0.5 it renders 1 decimal, but interRow step is 0.5 → OK; wiz-inter-plant step 0.1 → OK; wiz-emitter-spacing step 0.05 currently uses 2 decimals due to step<0.5 — verify readability.",
+    "closeField advances wizard from step 1 to step 2, but if the user was on any other step and re-closes/imports, wizard step is unchanged; expected behaviour per spec."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "One test field ‘Campo 1’ auto-created on load (guest); closed with 4 vertices during test near Brindisi (map default center).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All wizard flows (5 steps + toggle) work end-to-end. Only minor a11y warning from Radix Dialog (ObstacleSheet). Verified against public URL from REACT_APP_BACKEND_URL. No backend changes were part of this iteration."
+}
