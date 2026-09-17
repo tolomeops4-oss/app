@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import html2canvas from "html2canvas";
 import { v4 as uuidv4 } from "uuid";
 
@@ -126,15 +127,10 @@ export function buildGeoJSON(field, plan, irrigation) {
 
 export function downloadFile(filename, content, mime = "application/json") {
   const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, filename);
 }
+
+function _slug_removed_duplicate(s) { return s; }
 
 export function exportGeoJSON(field, plan) {
   const gj = buildGeoJSON(field, plan);
@@ -170,147 +166,200 @@ function csvEscape(v) {
   return s;
 }
 
+// ---------- PDF ----------
+function bearingLabel(deg) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const idx = Math.round(((deg % 360) / 45)) % 8;
+  return dirs[idx];
+}
+
 function slug(s) {
   return (s || "campo").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-// ---------- PDF ----------
+function downloadBlob(blob, filename) {
+  // Universal blob download compatible with Android Chrome, iOS Safari, desktop
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (e) {
+    // Fallback: open in new tab
+    window.open(blobUrl, "_blank");
+  }
+  // Release object URL later
+  setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (e) {} }, 30000);
+}
+
 export async function exportPDF({ field, plan, irrigationResult, mapElement }) {
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageW = pdf.internal.pageSize.getWidth();
-  let y = 12;
+  const materials = plan ? {
+    endPosts: plan.rows.reduce((s, r) => s + 2, 0),
+    intermediatePosts: plan.rows.reduce((s, r) => s + Math.max(0, Math.floor(r.length / 6) - 1), 0),
+    tutors: plan.totalPlants,
+    wireMeters: plan.totalRowMeters * 2,
+  } : null;
 
-  // Header
-  pdf.setFillColor(11, 14, 12);
-  pdf.rect(0, 0, pageW, 26, "F");
-  pdf.setTextColor(56, 224, 122);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(18);
-  pdf.text("PROGETTO OLIVETO", 12, 12);
-  pdf.setTextColor(230, 230, 230);
-  pdf.setFontSize(9);
-  pdf.setFont("helvetica", "normal");
-  pdf.text("Relazione Tecnica Impianto Superintensivo", 12, 18);
-  pdf.setFontSize(7);
-  pdf.text(new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" }), pageW - 12, 12, { align: "right" });
-  y = 32;
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
 
-  // Field info
-  pdf.setTextColor(20, 20, 20);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(12);
-  pdf.text(`Campo: ${field.name}`, 12, y); y += 6;
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(9);
-  pdf.text(`Varieta: ${field.config.variety}    Azimut file: ${field.azimuth.toFixed(1)}°`, 12, y); y += 5;
-  pdf.text(`Sesto: ${field.config.interRow.toFixed(2)} m x ${field.config.interPlant.toFixed(2)} m`, 12, y); y += 5;
-  pdf.text(`Capezzagna testata: ${field.config.headland.toFixed(1)} m    Margine laterale: ${field.config.sideMargin.toFixed(1)} m`, 12, y); y += 8;
+  // Header bar
+  doc.setFillColor(11, 14, 12);
+  doc.rect(0, 0, pageW, 28, "F");
+  doc.setTextColor(56, 224, 122);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("PROGETTO OLIVETO", 14, 13);
+  doc.setTextColor(220, 220, 220);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Scheda Tecnica Impianto  \u2022  ${field.name}`, 14, 20);
+  doc.setFontSize(8);
+  doc.setTextColor(160, 160, 160);
+  doc.text(new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" }), pageW - 14, 13, { align: "right" });
+  doc.text(`Varietà: ${field.config.variety}`, pageW - 14, 20, { align: "right" });
+
+  let y = 34;
 
   // Map snapshot
   if (mapElement) {
     try {
-      const canvas = await html2canvas(mapElement, { useCORS: true, backgroundColor: "#0b0e0c", scale: 1.5, logging: false });
-      const imgData = canvas.toDataURL("image/jpeg", 0.8);
-      const imgW = pageW - 24;
+      const canvas = await html2canvas(mapElement, { useCORS: true, allowTaint: true, backgroundColor: "#0b0e0c", scale: 1.5, logging: false });
+      const imgData = canvas.toDataURL("image/jpeg", 0.82);
+      const imgW = pageW - 28;
       const imgH = (canvas.height / canvas.width) * imgW;
-      const finalH = Math.min(imgH, 100);
-      pdf.addImage(imgData, "JPEG", 12, y, imgW, finalH, undefined, "FAST");
+      const finalH = Math.min(imgH, 90);
+      doc.addImage(imgData, "JPEG", 14, y, imgW, finalH, undefined, "FAST");
       y += finalH + 6;
-    } catch (e) { /* skip if map render fails */ }
+    } catch (e) { /* skip */ }
   }
 
-  // Metrics
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(11);
-  pdf.text("Computo Tecnico Impianto", 12, y); y += 6;
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(9);
-  const lines = [
-    ["Superficie Lorda", `${(plan?.areaGross || 0).toFixed(0)} m² (${((plan?.areaGross || 0) / 10000).toFixed(3)} ha)`],
-    ["Superficie Impiantabile", `${(plan?.areaPlantable || 0).toFixed(0)} m² (${((plan?.areaPlantable || 0) / 10000).toFixed(3)} ha)`],
+  // Compute values
+  const areaGrossHa = (plan?.areaGross || 0) / 10000;
+  const areaPlantableHa = (plan?.areaPlantable || 0) / 10000;
+  const azValue = field.azimuth || 0;
+  const emitterCount = irrigationResult?.totalEmitters ?? 0;
+  const flowM3h = irrigationResult?.totalFlowM3h ?? 0;
+
+  // General params table
+  const generalBody = [
+    ["Superficie Lorda", `${areaGrossHa.toFixed(3)} ha (${(plan?.areaGross || 0).toFixed(0)} m²)`],
+    ["Superficie Impiantata", `${areaPlantableHa.toFixed(3)} ha (${(plan?.areaPlantable || 0).toFixed(0)} m²)`],
     ["Perimetro", `${(plan?.perimeter || 0).toFixed(1)} m`],
-    ["Numero Filari", `${plan?.rows?.length || 0} (di cui ${plan?.shortRowCount || 0} corti)`],
-    ["Lunghezza Media Filare", `${(plan?.avgRowLength || 0).toFixed(1)} m`],
-    ["Lunghezza Min / Max Filare", `${(plan?.minRowLength || 0).toFixed(1)} m / ${(plan?.maxRowLength || 0).toFixed(1)} m`],
-    ["Metri Lineari Totali Filari", `${(plan?.totalRowMeters || 0).toFixed(1)} m`],
-    ["Piante Totali", `${plan?.totalPlants || 0}`],
-    ["Densita Reale", `${(plan?.density || 0).toFixed(0)} piante/ha`],
+    ["Interfilare / Sesto", `${field.config.interRow.toFixed(2)} m × ${field.config.interPlant.toFixed(2)} m`],
+    ["Capezzagna Testata / Margine Laterale", `${field.config.headland.toFixed(1)} m / ${field.config.sideMargin.toFixed(1)} m`],
+    ["Orientamento Filari", `${azValue.toFixed(1)}° ${bearingLabel(azValue)}`],
+    ["Filari Totali", `${plan?.rows?.length ?? 0} (di cui ${plan?.shortRowCount ?? 0} corti)`],
+    ["Metri Lineari Filari", `${(plan?.totalRowMeters || 0).toFixed(1)} m`],
+    ["Lunghezza Media / Min / Max Filare", `${(plan?.avgRowLength || 0).toFixed(1)} / ${(plan?.minRowLength || 0).toFixed(1)} / ${(plan?.maxRowLength || 0).toFixed(1)} m`],
+    ["Piante Totali", `${plan?.totalPlants ?? 0}`],
+    ["Densità Reale", `${(plan?.density || 0).toFixed(0)} piante/ha`],
   ];
-  for (const [k, v] of lines) {
-    pdf.text(k, 14, y);
-    pdf.text(String(v), pageW - 14, y, { align: "right" });
-    y += 5;
-    if (y > 280) { pdf.addPage(); y = 20; }
+  autoTable(doc, {
+    startY: y,
+    head: [["Parametro Agronomico", "Valore"]],
+    body: generalBody,
+    theme: "striped",
+    headStyles: { fillColor: [34, 60, 112], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10 },
+    styles: { fontSize: 9, cellPadding: 2 },
+    columnStyles: { 0: { cellWidth: 90 }, 1: { halign: "right" } },
+    margin: { left: 14, right: 14 },
+  });
+  y = doc.lastAutoTable.finalY + 4;
+
+  // Irrigation table
+  if (irrigationResult) {
+    const irrBody = [
+      ["Ali per Fila", `${field.irrigation.linesPerRow}`],
+      ["Portata Gocciolatore", `${field.irrigation.emitterFlow.toFixed(2)} L/h`],
+      ["Passo Gocciolatori", `${field.irrigation.emitterSpacing.toFixed(2)} m`],
+      ["Metri Lineari Ala", `${irrigationResult.totalMeters.toFixed(1)} m`],
+      ["Numero Gocciolatori", `${emitterCount}`],
+      ["Portata Totale Impianto", `${flowM3h.toFixed(2)} m³/h`],
+      ["Portata Max Settore", `${irrigationResult.maxSectorM3h.toFixed(2)} m³/h`],
+      ["Volume 1h (settore)", `${irrigationResult.volumePerHourM3.toFixed(2)} m³ - ${irrigationResult.mmEquivalent.toFixed(2)} mm eq.`],
+      ["Pompa Dichiarata", `${field.irrigation.pumpCapacity.toFixed(1)} m³/h${irrigationResult.exceedsPump ? "  ⚠ SUPERATA" : ""}`],
+    ];
+    autoTable(doc, {
+      startY: y,
+      head: [["Impianto Irrigazione a Goccia", "Valore"]],
+      body: irrBody,
+      theme: "striped",
+      headStyles: { fillColor: [14, 116, 144], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10 },
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 90 }, 1: { halign: "right" } },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 4;
+
+    // Sector detail
+    if (irrigationResult.sectors?.length) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Settore", "Filari", "Metri Ala", "Gocciolatori", "m³/h", "L/min"]],
+        body: irrigationResult.sectors.map((s) => [
+          `#${s.index + 1}`, s.rows, s.meters.toFixed(1), s.emitters, s.flowM3h.toFixed(2), s.flowLmin.toFixed(1),
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [14, 116, 144], textColor: [255, 255, 255], fontSize: 9 },
+        styles: { fontSize: 8, cellPadding: 1.5 },
+        margin: { left: 14, right: 14 },
+      });
+      y = doc.lastAutoTable.finalY + 4;
+    }
   }
 
-  // Irrigation
-  if (irrigationResult) {
-    y += 4;
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(11);
-    pdf.text("Impianto Irrigazione a Goccia", 12, y); y += 6;
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(9);
-    const ir = irrigationResult;
-    const irrLines = [
-      ["Ali per Fila", `${field.irrigation.linesPerRow}`],
-      ["Portata Gocciolatore", `${field.irrigation.emitterFlow} L/h`],
-      ["Passo Gocciolatori", `${field.irrigation.emitterSpacing} m`],
-      ["Metri Lineari Ala Gocciolante", `${ir.totalMeters.toFixed(1)} m`],
-      ["Numero Gocciolatori", `${ir.totalEmitters}`],
-      ["Portata Totale Impianto", `${ir.totalFlowM3h.toFixed(2)} m³/h`],
-      ["Portata Max Settore", `${ir.maxSectorM3h.toFixed(2)} m³/h`],
-      ["Volume 1h (settore)", `${ir.volumePerHourM3.toFixed(2)} m³ (${ir.mmEquivalent.toFixed(2)} mm eq.)`],
-    ];
-    for (const [k, v] of irrLines) {
-      pdf.text(k, 14, y);
-      pdf.text(String(v), pageW - 14, y, { align: "right" });
-      y += 5;
-      if (y > 280) { pdf.addPage(); y = 20; }
-    }
-    if (ir.exceedsPump) {
-      y += 2;
-      pdf.setTextColor(220, 60, 60);
-      pdf.text(`⚠ Portata settore max (${ir.maxSectorM3h.toFixed(2)} m³/h) supera pompa dichiarata (${field.irrigation.pumpCapacity} m³/h)`, 14, y);
-      pdf.setTextColor(20, 20, 20);
-      y += 5;
-    }
+  // Materials
+  if (materials) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Stima Materiali Struttura", "Quantità"]],
+      body: [
+        ["Pali di Testata (2 per filare)", `${materials.endPosts}`],
+        ["Pali Intermedi (passo 6 m)", `${materials.intermediatePosts}`],
+        ["Tutori (uno per pianta)", `${materials.tutors}`],
+        ["Filo Zincato (2 fili per fila)", `${materials.wireMeters.toFixed(0)} m`],
+      ],
+      theme: "striped",
+      headStyles: { fillColor: [69, 44, 26], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 10 },
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: { 0: { cellWidth: 90 }, 1: { halign: "right" } },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 4;
+  }
 
-    // Sector table
-    y += 4;
-    pdf.setFont("helvetica", "bold");
-    pdf.text("Settori Irrigui", 12, y); y += 5;
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
-    pdf.text("Settore", 14, y);
-    pdf.text("Filari", 40, y);
-    pdf.text("Metri Ala", 65, y);
-    pdf.text("Gocc.", 95, y);
-    pdf.text("m³/h", 120, y);
-    pdf.text("L/min", 150, y);
-    y += 4;
-    pdf.setLineWidth(0.2);
-    pdf.line(12, y - 2, pageW - 12, y - 2);
-    for (const s of ir.sectors) {
-      pdf.text(`#${s.index + 1}`, 14, y);
-      pdf.text(String(s.rows), 40, y);
-      pdf.text(s.meters.toFixed(1), 65, y);
-      pdf.text(String(s.emitters), 95, y);
-      pdf.text(s.flowM3h.toFixed(2), 120, y);
-      pdf.text(s.flowLmin.toFixed(1), 150, y);
-      y += 4;
-      if (y > 285) { pdf.addPage(); y = 20; }
-    }
+  // Row detail (new page if needed)
+  if (plan?.rows?.length) {
+    if (y > 240) { doc.addPage(); y = 20; }
+    autoTable(doc, {
+      startY: y,
+      head: [["ID Filare", "Lung. (m)", "Piante", "Corto", "Lat inizio", "Lng inizio", "Lat fine", "Lng fine"]],
+      body: plan.rows.map((r) => [
+        r.id, r.length.toFixed(1), r.plants.length, r.isShort ? "SI" : "NO",
+        r.start.lat.toFixed(5), r.start.lng.toFixed(5), r.end.lat.toFixed(5), r.end.lng.toFixed(5),
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: [34, 60, 112], textColor: [255, 255, 255], fontSize: 8 },
+      styles: { fontSize: 7, cellPadding: 1 },
+      margin: { left: 14, right: 14 },
+    });
   }
 
   // Footer
-  const pageCount = pdf.internal.getNumberOfPages();
+  const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
-    pdf.setPage(i);
-    pdf.setFontSize(7);
-    pdf.setTextColor(120, 120, 120);
-    pdf.text(`Progetto Oliveto - Pagina ${i}/${pageCount}`, pageW / 2, 292, { align: "center" });
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`Progetto Oliveto  \u2022  Scheda Tecnica  \u2022  Pagina ${i}/${pageCount}`, pageW / 2, 292, { align: "center" });
   }
 
-  pdf.save(`${slug(field.name)}_report_tecnico.pdf`);
+  // Universal blob download (Android Chrome compatible)
+  const blob = doc.output("blob");
+  downloadBlob(blob, `Scheda_Tecnica_${slug(field.name)}.pdf`);
 }
