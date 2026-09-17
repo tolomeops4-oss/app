@@ -9,9 +9,10 @@ import Toolbar from "@/components/planner/Toolbar";
 import FieldsDrawer from "@/components/planner/FieldsDrawer";
 import SidePanel from "@/components/planner/SidePanel";
 import ObstacleSheet from "@/components/planner/ObstacleSheet";
+import MeasureBar from "@/components/planner/MeasureBar";
 import EditPerimeterBar from "@/components/planner/EditPerimeterBar";
 import { DEFAULT_CONFIG, DEFAULT_IRRIGATION } from "@/lib/defaults";
-import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon } from "@/lib/geometry";
+import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon, pointsMetrics } from "@/lib/geometry";
 import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF, parseGeoJSONForField, readFileAsText } from "@/lib/exportUtils";
 import * as api from "@/lib/api";
 
@@ -22,7 +23,8 @@ export default function Planner() {
   const [toolMode, setToolMode] = useState("pan");
   const [pendingObstacleType, setPendingObstacleType] = useState(null);
   const [obstacleSheetOpen, setObstacleSheetOpen] = useState(false);
-  const [editSnapshot, setEditSnapshot] = useState(null); // vertices backup when entering edit-perimeter
+  const [editSnapshot, setEditSnapshot] = useState(null);
+  const [measurePoints, setMeasurePoints] = useState([]);
   const [center, setCenter] = useState([40.4917, 17.9975]);
   const [zoom, setZoom] = useState(16);
   const [fieldsOpen, setFieldsOpen] = useState(false);
@@ -104,6 +106,10 @@ export default function Planner() {
 
   // ============ Map click handler ============
   const handleMapClick = useCallback((latlng, mode) => {
+    if (mode === "measure") {
+      setMeasurePoints((prev) => [...prev, { id: uuidv4(), lat: latlng.lat, lng: latlng.lng }]);
+      return;
+    }
     if (!activeField) return;
     if (mode === "draw-field") {
       if (activeField.closed) {
@@ -328,6 +334,31 @@ export default function Planner() {
     toast.info("Modifiche annullate");
   }, [activeField, editSnapshot, updateFieldLocal]);
 
+  // ============ Measure tool ============
+  const measureMetrics = useMemo(() => pointsMetrics(measurePoints), [measurePoints]);
+  const startMeasure = useCallback(() => {
+    if (toolMode === "measure") return;
+    setToolMode("measure");
+    setMeasurePoints([]);
+    setPendingObstacleType(null);
+    toast.info("Modalità Misura attiva. Tocca la mappa per posizionare i punti.");
+  }, [toolMode]);
+  const measureUndo = useCallback(() => {
+    setMeasurePoints((prev) => prev.slice(0, -1));
+  }, []);
+  const measureClear = useCallback(() => setMeasurePoints([]), []);
+  const measureExit = useCallback(() => {
+    setMeasurePoints([]);
+    setToolMode("pan");
+  }, []);
+  const measureUseAzimuth = useCallback((az) => {
+    if (!activeField) return;
+    const rowAz = ((az % 180) + 180) % 180;
+    updateFieldLocal(activeField.id, { azimuth: rowAz });
+    scheduleSave(activeField.id);
+    toast.success(`Azimut filari impostato a ${rowAz.toFixed(1)}°`);
+  }, [activeField, updateFieldLocal, scheduleSave]);
+
   // ============ Config / Irrigation / Azimuth ============
   const updateConfig = useCallback((patch) => {
     if (!activeField) return;
@@ -452,6 +483,8 @@ export default function Planner() {
         showPlants={showPlants}
         showRows={showRows}
         showBuffers={showBuffers}
+        measurePoints={measurePoints}
+        measureMetrics={measureMetrics}
         onMapClick={handleMapClick}
         onVertexClick={handleVertexClick}
         onVertexDragEnd={handleVertexDragEnd}
@@ -478,6 +511,7 @@ export default function Planner() {
         onDeleteField={deleteActive}
         onGPS={goToGPS}
         onOptimizeAzimuth={() => { setInitialPanelTab("orientation"); setPanelOpen(true); }}
+        onMeasure={startMeasure}
         canUndo={canUndo}
         canClose={canClose}
         canDelete={canDelete}
@@ -506,8 +540,19 @@ export default function Planner() {
         return <EditPerimeterBar vertexCount={activeField.vertices.length} areaHa={ha} onSave={saveEditPerimeter} onCancel={cancelEditPerimeter} />;
       })()}
 
+      {toolMode === "measure" && (
+        <MeasureBar
+          points={measurePoints}
+          metrics={measureMetrics}
+          onUndo={measureUndo}
+          onClear={measureClear}
+          onExit={measureExit}
+          onUseAzimuth={measureUseAzimuth}
+        />
+      )}
+
       {/* Floating Parametri button */}
-      {activeField && activeField.closed && toolMode !== "edit-perimeter" && (
+      {activeField && activeField.closed && toolMode !== "edit-perimeter" && toolMode !== "measure" && (
         <Button
           className="fixed right-3 md:right-6 bottom-24 md:bottom-28 z-20 h-14 w-14 md:h-16 md:w-16 rounded-full glass-panel bg-emerald-600/95 hover:bg-emerald-500 text-white shadow-2xl shadow-emerald-500/40 border border-emerald-400/50 p-0 flex flex-col gap-0.5 items-center justify-center"
           onClick={() => { setInitialPanelTab("config"); setPanelOpen(true); }}

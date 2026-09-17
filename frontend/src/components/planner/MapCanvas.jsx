@@ -15,6 +15,8 @@ export default function MapCanvas({
   showPlants,
   showRows,
   showBuffers,
+  measurePoints,
+  measureMetrics,
   onMapClick,
   onVertexClick,
   onVertexDragEnd,
@@ -37,6 +39,7 @@ export default function MapCanvas({
     rows: L.layerGroup(),
     plants: L.layerGroup(),
     network: L.layerGroup(),
+    measure: L.layerGroup(),
   });
 
   const onMapClickRef = useRef(onMapClick);
@@ -102,9 +105,58 @@ export default function MapCanvas({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const drawing = ["draw-field", "add-obstacle-point"].includes(toolMode);
+    const drawing = ["draw-field", "add-obstacle-point", "measure"].includes(toolMode);
     containerRef.current.style.cursor = drawing ? "crosshair" : "";
   }, [toolMode]);
+
+  // Measure layer
+  useEffect(() => {
+    const lg = layersRef.current.measure;
+    lg.clearLayers();
+    if (!measurePoints || measurePoints.length === 0) return;
+    // Draw line
+    if (measurePoints.length >= 2) {
+      const coords = measurePoints.map((p) => [p.lat, p.lng]);
+      L.polyline(coords, {
+        color: "#f59e0b",
+        weight: 3,
+        opacity: 0.95,
+        dashArray: "10,6",
+        interactive: false,
+      }).addTo(lg);
+    }
+    // Draw closing segment if >= 3 points (as area indication)
+    if (measurePoints.length >= 3) {
+      const first = measurePoints[0];
+      const last = measurePoints[measurePoints.length - 1];
+      L.polyline([[last.lat, last.lng], [first.lat, first.lng]], {
+        color: "#f59e0b",
+        weight: 1.5,
+        opacity: 0.5,
+        dashArray: "3,6",
+        interactive: false,
+      }).addTo(lg);
+    }
+    // Point markers
+    measurePoints.forEach((p, i) => {
+      const html = `<div style="background:#f59e0b;border:2px solid #fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:#451a03;font-weight:800;font-size:11px;font-family:JetBrains Mono,monospace;box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 8px rgba(0,0,0,.5);">${i + 1}</div>`;
+      const icon = L.divIcon({ className: "measure-icon", html, iconSize: [22, 22], iconAnchor: [11, 11] });
+      L.marker([p.lat, p.lng], { icon, keyboard: false, interactive: false }).addTo(lg);
+    });
+    // Segment labels
+    if (measureMetrics?.segments) {
+      measureMetrics.segments.forEach((seg, i) => {
+        const a = measurePoints[i];
+        const b = measurePoints[i + 1];
+        if (!a || !b) return;
+        const midLat = (a.lat + b.lat) / 2;
+        const midLng = (a.lng + b.lng) / 2;
+        const html = `<div style="background:rgba(11,14,12,0.92);border:1px solid rgba(245,158,11,.6);border-radius:6px;padding:2px 6px;color:#fbbf24;font-family:JetBrains Mono,monospace;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.5);">${seg.distM.toFixed(2)} m</div>`;
+        const icon = L.divIcon({ className: "measure-label", html, iconSize: null, iconAnchor: [0, 10] });
+        L.marker([midLat, midLng], { icon, keyboard: false, interactive: false }).addTo(lg);
+      });
+    }
+  }, [measurePoints, measureMetrics]);
 
   // Other fields
   useEffect(() => {
