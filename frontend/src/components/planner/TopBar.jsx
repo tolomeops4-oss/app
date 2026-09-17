@@ -1,4 +1,4 @@
-import { Search, Layers, Menu, ChevronDown, Compass, MapPin } from "lucide-react";
+import { Search, Layers, Menu, ChevronDown, Compass, MapPin, ListChecks, Map as MapIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ export default function TopBar({
   onQuickLocation,
   onBackup,
   onRestore,
+  wizardMode,
+  onToggleWizard,
 }) {
   const [q, setQ] = useState("");
   const activeLayer = TILE_LAYERS.find((t) => t.id === tileLayerId) || TILE_LAYERS[0];
@@ -126,6 +128,19 @@ export default function TopBar({
       >
         <Compass className="w-4 h-4" />
         <span className="hidden md:inline text-xs font-semibold">Strumenti</span>
+      </Button>
+
+      {/* Wizard / Mappa Libera toggle */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onToggleWizard}
+        className={`glass-panel h-11 md:h-12 rounded-xl px-3 gap-2 flex-shrink-0 ${wizardMode ? "bg-emerald-600/90 text-white hover:bg-emerald-600" : "text-emerald-50 hover:bg-emerald-950/60 hover:text-emerald-300"}`}
+        data-testid="btn-toggle-wizard"
+        title={wizardMode ? "Passa a Mappa Libera" : "Passa alla Procedura Guidata"}
+      >
+        {wizardMode ? <ListChecks className="w-4 h-4" /> : <MapIcon className="w-4 h-4" />}
+        <span className="hidden md:inline text-xs font-semibold">{wizardMode ? "Guidata" : "Libera"}</span>
       </Button>
 
       <UserMenu onBackup={onBackup} onRestore={onRestore} />

@@ -14,6 +14,8 @@ import NetworkSheet from "@/components/planner/NetworkSheet";
 import MeasureBar from "@/components/planner/MeasureBar";
 import EditPerimeterBar from "@/components/planner/EditPerimeterBar";
 import LoginDialog from "@/auth/LoginDialog";
+import WizardStepper from "@/components/planner/WizardStepper";
+import WizardPanel from "@/components/planner/WizardPanel";
 import { useAuth } from "@/auth/AuthContext";
 import { DEFAULT_CONFIG, DEFAULT_IRRIGATION } from "@/lib/defaults";
 import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon, pointsMetrics, snapToNearestRow } from "@/lib/geometry";
@@ -45,6 +47,8 @@ export default function Planner() {
   const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
   const [claimPromptOpen, setClaimPromptOpen] = useState(false);
   const [pendingGuestCount, setPendingGuestCount] = useState(0);
+  const [wizardMode, setWizardMode] = useState(true);
+  const [wizardStep, setWizardStep] = useState(1);
   const backupInputRef = useRef(null);
   const mapRef = useRef(null);
   const saveTimersRef = useRef({});
@@ -264,7 +268,8 @@ export default function Planner() {
     scheduleSave(activeField.id);
     setToolMode("pan");
     setInitialPanelTab("config");
-    setPanelOpen(true);
+    // Advance wizard to step 2 if on step 1
+    setWizardStep((s) => (s === 1 ? 2 : s));
     const poly = verticesToPolygon([...activeField.vertices]);
     const area = poly ? polygonAreaM2(poly) : 0;
     toast.success(`Campo chiuso: ${(area / 10000).toFixed(3)} ha`);
@@ -655,25 +660,63 @@ export default function Planner() {
         onQuickLocation={handleQuickLocation}
         onBackup={handleBackup}
         onRestore={handleRestoreClick}
+        wizardMode={wizardMode}
+        onToggleWizard={() => setWizardMode((w) => !w)}
       />
 
-      <Toolbar
-        toolMode={toolMode}
-        onToolChange={handleToolChange}
-        onUndoPoint={undoLastPoint}
-        onCloseField={closeField}
-        onDeleteField={deleteActive}
-        onGPS={goToGPS}
-        onOptimizeAzimuth={() => { setInitialPanelTab("orientation"); setPanelOpen(true); }}
-        onMeasure={startMeasure}
-        onNetwork={() => {
-          if (!activeField || !activeField.closed) { toast.error("Prima chiudi il perimetro del campo"); return; }
-          setNetworkSheetOpen(true);
-        }}
-        canUndo={canUndo}
-        canClose={canClose}
-        canDelete={canDelete}
-      />
+      {wizardMode && (
+        <>
+          <WizardStepper
+            current={wizardStep}
+            onStep={(s) => {
+              if (s > 1 && (!activeField || !activeField.closed)) { toast.info("Chiudi prima il perimetro nello Step 1"); return; }
+              setWizardStep(s);
+            }}
+            unlockedUpTo={activeField?.closed ? 5 : 1}
+          />
+          <WizardPanel
+            step={wizardStep}
+            onStepChange={(s) => {
+              if (s > 1 && (!activeField || !activeField.closed)) { toast.info("Chiudi prima il perimetro"); return; }
+              setWizardStep(Math.max(1, Math.min(5, s)));
+            }}
+            field={activeField}
+            plan={plan}
+            irrigationResult={irrigationResult}
+            onDrawStart={() => handleToolChange("draw-field")}
+            onUndo={undoLastPoint}
+            onCloseField={closeField}
+            onMeasure={startMeasure}
+            onUpdateConfig={updateConfig}
+            onUpdateIrrigation={updateIrrigation}
+            onUpdateAzimuth={updateAzimuth}
+            onAddObstacle={() => { if (!activeField?.closed) { toast.error("Chiudi prima il perimetro"); return; } setObstacleSheetOpen(true); }}
+            onExportPDF={doExportPDF}
+            onExportGeoJSON={() => exportGeoJSON(activeField, plan)}
+            onFlushSave={flushSave}
+          />
+        </>
+      )}
+
+      {!wizardMode && (
+        <Toolbar
+          toolMode={toolMode}
+          onToolChange={handleToolChange}
+          onUndoPoint={undoLastPoint}
+          onCloseField={closeField}
+          onDeleteField={deleteActive}
+          onGPS={goToGPS}
+          onOptimizeAzimuth={() => { setInitialPanelTab("orientation"); setPanelOpen(true); }}
+          onMeasure={startMeasure}
+          onNetwork={() => {
+            if (!activeField || !activeField.closed) { toast.error("Prima chiudi il perimetro del campo"); return; }
+            setNetworkSheetOpen(true);
+          }}
+          canUndo={canUndo}
+          canClose={canClose}
+          canDelete={canDelete}
+        />
+      )}
 
       {/* Drawing hint / live info */}
       {toolMode === "draw-field" && liveInfo && (
