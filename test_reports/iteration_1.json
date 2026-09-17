@@ -1,0 +1,24 @@
+{
+  "summary": "Full backend + frontend testing of Progetto Oliveto (Pianificatore Cartografico Oliveto). Backend CRUD via pytest: 8/8 tests passed. Frontend UI via Playwright: map loads Google Hybrid tiles centered on San Pietro Vernotico, all TopBar controls present (btn-open-fields-drawer, input-search-location, btn-tile-layer-selector with 4 layer options google_hybrid/google_satellite/esri/osm, btn-open-side-panel), all 9 Toolbar buttons present in italiano, drawing perimeter with 4 map taps creates vertices and shows live-perimeter-info ('Punti: 4 ≈ 19.755 ha'), Chiudi/Salva closes polygon and opens SidePanel on Sesto tab, SidePanel exposes 5 tabs (Sesto/Orient./Ostacoli/Irrigaz./Risult.), Orientation panel shows 3 sub-tabs Manuale/Auto/Bordo with compass at 151° SE, ObstacleSheet opens with all 5 types (palo/fabbricato/pozzo/roccia/albero) and selecting one activates add-obstacle-point mode with obstacle-placement-hint, tap-to-place obstacle works, MeasureBar exposes Undo/Clear/Exit/UseAzimuth, FieldsDrawer exposes btn-create-field/duplicate/delete/edit-perimeter per field, EditPerimeterBar appears in edit mode with 'Salva'/'Annulla', floating btn-floating-params visible when active field is closed. Cleaned up 6 test-created fields.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Radix DialogContent (SidePanel/FieldsDrawer/ObstacleSheet)", "issues": ["Console warning: 'Missing Description or aria-describedby={undefined} for {DialogContent}'. Non-blocking a11y warning; add DialogDescription or aria-describedby to Sheet/Dialog contents."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": ["(low) Add DialogDescription/aria-describedby to Sheet/Dialog components (SidePanel, FieldsDrawer, ObstacleSheet) to silence Radix a11y warning."],
+  "critical_code_review_comments": [
+    "server.py: all endpoints properly exclude MongoDB _id via projection. Good.",
+    "Planner.jsx is ~615 lines — approaching size threshold; consider splitting handlers (drawing/measure/edit/CRUD) into custom hooks (useDrawing, useMeasure, useEditPerimeter) for maintainability.",
+    "handleToolChange auto-creates a new field when user clicks 'Nuovo Campo' while an already-closed field is active — this is intentional but leads to fast accumulation of empty test fields during exploration; consider requiring an explicit create confirmation if the current field has 0 vertices."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None (test fields created during automation were deleted after run).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: REACT_APP_BACKEND_URL. Data-testid coverage is comprehensive. Correct obstacle-type testids are btn-obstacle-type-{palo|fabbricato|pozzo|roccia|albero} (not obstacle-type-*). Orientation panel is inside SidePanel — reach it via btn-open-side-panel or btn-optimize-azimuth. SidePanel opens on top of floating params so click Escape or the close button to interact with map afterwards."
+}
