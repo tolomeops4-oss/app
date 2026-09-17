@@ -22,6 +22,7 @@ export default function MapCanvas({
   onVertexDragEnd,
   onEdgeMidpointClick,
   onObstacleClick,
+  onNetworkElementClick,
   onMapReady,
   networkKind,
 }) {
@@ -105,7 +106,7 @@ export default function MapCanvas({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const drawing = ["draw-field", "add-obstacle-point", "measure"].includes(toolMode);
+    const drawing = ["draw-field", "add-obstacle-point", "add-network", "measure"].includes(toolMode);
     containerRef.current.style.cursor = drawing ? "crosshair" : "";
   }, [toolMode]);
 
@@ -344,18 +345,55 @@ export default function MapCanvas({
     }
   }, [plan, showPlants, currentZoom]);
 
-  // Network
+  // Network elements + condotta line
   useEffect(() => {
     const lg = layersRef.current.network;
     lg.clearLayers();
-    if (!activeField?.networkElements) return;
-    for (const el of activeField.networkElements) {
-      const symbol = el.type === "pozzo" ? "◎" : el.type === "pompa" ? "⚙" : el.type === "filtro" ? "⌘" : "▣";
-      const html = `<div class="oliveto-net-icon" style="width:32px;height:32px;">${symbol}</div>`;
-      const icon = L.divIcon({ className: "net-icon-wrapper", html, iconSize: [32, 32], iconAnchor: [16, 16] });
-      L.marker([el.lat, el.lng], { icon }).addTo(lg);
+    if (!activeField?.networkElements || activeField.networkElements.length === 0) return;
+    const els = activeField.networkElements;
+    // Draw condotta principale: connect pozzo → pompa → filtro → valvole (in order)
+    const order = ["pozzo", "pompa", "filtro"];
+    const backbone = [];
+    for (const t of order) {
+      const e = els.find((x) => x.type === t);
+      if (e) backbone.push(e);
     }
-  }, [activeField?.networkElements]);
+    // From last backbone node, connect to each valvola
+    if (backbone.length >= 2) {
+      const coords = backbone.map((e) => [e.lat, e.lng]);
+      L.polyline(coords, {
+        color: "#38bdf8", weight: 3, opacity: 0.85, dashArray: "8,4", interactive: false,
+      }).addTo(lg);
+    }
+    const lastBackbone = backbone[backbone.length - 1];
+    if (lastBackbone) {
+      const valvole = els.filter((e) => e.type === "valvola");
+      for (const v of valvole) {
+        L.polyline([[lastBackbone.lat, lastBackbone.lng], [v.lat, v.lng]], {
+          color: "#0ea5e9", weight: 1.5, opacity: 0.7, dashArray: "4,4", interactive: false,
+        }).addTo(lg);
+      }
+    }
+    // Element markers
+    const symbols = {
+      pozzo: { symbol: "◎", color: "#0ea5e9", label: "Pozzo" },
+      pompa: { symbol: "⚙", color: "#38bdf8", label: "Pompa" },
+      filtro: { symbol: "⌘", color: "#7dd3fc", label: "Filtro" },
+      valvola: { symbol: "▣", color: "#22d3ee", label: "Valvola" },
+    };
+    els.forEach((el, i) => {
+      const info = symbols[el.type] || symbols.pozzo;
+      const sectorTag = typeof el.sectorIndex === "number" ? `<span style="position:absolute;bottom:-8px;right:-8px;background:${info.color};color:#052e16;border-radius:8px;padding:1px 5px;font-size:9px;font-weight:800;font-family:JetBrains Mono,monospace;box-shadow:0 1px 3px rgba(0,0,0,.5);">S${el.sectorIndex + 1}</span>` : "";
+      const html = `<div style="position:relative;background:rgba(11,14,12,0.95);border:2px solid ${info.color};border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:${info.color};font-size:16px;box-shadow:0 0 0 2px rgba(56,189,248,.25),0 2px 10px rgba(0,0,0,.5);">${info.symbol}${sectorTag}</div>`;
+      const icon = L.divIcon({ className: "net-icon-wrapper", html, iconSize: [34, 34], iconAnchor: [17, 17] });
+      const marker = L.marker([el.lat, el.lng], { icon });
+      marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (onNetworkElementClick) onNetworkElementClick(el);
+      });
+      marker.addTo(lg);
+    });
+  }, [activeField?.networkElements, onNetworkElementClick]);
 
   return <div ref={containerRef} className="absolute inset-0 z-0" data-testid="leaflet-map" />;
 }

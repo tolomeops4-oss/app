@@ -9,10 +9,11 @@ import Toolbar from "@/components/planner/Toolbar";
 import FieldsDrawer from "@/components/planner/FieldsDrawer";
 import SidePanel from "@/components/planner/SidePanel";
 import ObstacleSheet from "@/components/planner/ObstacleSheet";
+import NetworkSheet from "@/components/planner/NetworkSheet";
 import MeasureBar from "@/components/planner/MeasureBar";
 import EditPerimeterBar from "@/components/planner/EditPerimeterBar";
 import { DEFAULT_CONFIG, DEFAULT_IRRIGATION } from "@/lib/defaults";
-import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon, pointsMetrics } from "@/lib/geometry";
+import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon, pointsMetrics, snapToNearestRow } from "@/lib/geometry";
 import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF, parseGeoJSONForField, readFileAsText } from "@/lib/exportUtils";
 import * as api from "@/lib/api";
 
@@ -23,6 +24,8 @@ export default function Planner() {
   const [toolMode, setToolMode] = useState("pan");
   const [pendingObstacleType, setPendingObstacleType] = useState(null);
   const [obstacleSheetOpen, setObstacleSheetOpen] = useState(false);
+  const [networkSheetOpen, setNetworkSheetOpen] = useState(false);
+  const [pendingNetworkType, setPendingNetworkType] = useState(null);
   const [editSnapshot, setEditSnapshot] = useState(null);
   const [measurePoints, setMeasurePoints] = useState([]);
   const [center, setCenter] = useState([40.4917, 17.9975]);
@@ -132,9 +135,35 @@ export default function Planner() {
       updateFieldLocal(activeField.id, (f) => ({ obstacles: [...(f.obstacles || []), obs] }));
       scheduleSave(activeField.id);
       toast.success(`Ostacolo "${t.label}" posizionato`);
-      // stay in obstacle mode to allow multiple placements
+    } else if (mode === "add-network" && pendingNetworkType) {
+      const t = pendingNetworkType;
+      // Snap to nearest filare endpoint if valvola
+      let placedLat = latlng.lat, placedLng = latlng.lng, sectorIndex, snappedRowId;
+      if (t.id === "valvola" && plan?.rows?.length) {
+        const s = snapToNearestRow(latlng, plan, 12);
+        if (s.snapped) {
+          placedLat = s.lat; placedLng = s.lng; snappedRowId = s.rowId;
+          if (irrigationResult?.assignments) {
+            const si = irrigationResult.assignments[s.rowId];
+            if (typeof si === "number") sectorIndex = si;
+          }
+        }
+      }
+      const el = {
+        id: uuidv4(),
+        type: t.id,
+        lat: placedLat,
+        lng: placedLng,
+        label: t.label,
+        sectorIndex,
+        rowId: snappedRowId,
+      };
+      updateFieldLocal(activeField.id, (f) => ({ networkElements: [...(f.networkElements || []), el] }));
+      scheduleSave(activeField.id);
+      const suffix = t.id === "valvola" && snappedRowId ? ` (settore ${(sectorIndex ?? 0) + 1})` : "";
+      toast.success(`${t.label} posizionato${suffix}`);
     }
-  }, [activeField, updateFieldLocal, scheduleSave, pendingObstacleType]);
+  }, [activeField, updateFieldLocal, scheduleSave, pendingObstacleType, pendingNetworkType, plan, irrigationResult]);
 
   const handleVertexClick = useCallback((vertex) => {
     if (!activeField) return;
@@ -242,18 +271,49 @@ export default function Planner() {
         return;
       }
       setObstacleSheetOpen(true);
+    } else if (mode === "add-network") {
+      if (!activeField || !activeField.closed) {
+        toast.error("Prima chiudi il perimetro del campo");
+        return;
+      }
+      setNetworkSheetOpen(true);
     } else {
       setToolMode(mode);
       setPendingObstacleType(null);
+      setPendingNetworkType(null);
     }
   }, [activeField]);
 
   const handleObstacleTypeSelected = useCallback((t) => {
     setPendingObstacleType(t);
+    setPendingNetworkType(null);
     setToolMode("add-obstacle-point");
     setObstacleSheetOpen(false);
     toast.info(`${t.label} — tocca la mappa per posizionare`);
   }, []);
+
+  const handleNetworkTypeSelected = useCallback((t) => {
+    setPendingNetworkType(t);
+    setPendingObstacleType(null);
+    setToolMode("add-network");
+    setNetworkSheetOpen(false);
+    const hint = t.id === "valvola" ? "tocca vicino a un filare (snap 12m)" : "tocca la mappa per posizionare";
+    toast.info(`${t.label} — ${hint}`);
+  }, []);
+
+  const handleNetworkElementClick = useCallback((el) => {
+    if (!activeField) return;
+    if (window.confirm(`Eliminare "${el.label}"?`)) {
+      updateFieldLocal(activeField.id, (f) => ({ networkElements: f.networkElements.filter((x) => x.id !== el.id) }));
+      scheduleSave(activeField.id);
+    }
+  }, [activeField, updateFieldLocal, scheduleSave]);
+
+  const removeNetworkElement = useCallback((id) => {
+    if (!activeField) return;
+    updateFieldLocal(activeField.id, (f) => ({ networkElements: f.networkElements.filter((x) => x.id !== id) }));
+    scheduleSave(activeField.id);
+  }, [activeField, updateFieldLocal, scheduleSave]);
 
   // ============ Field CRUD ============
   const handleCreateField = useCallback(async (name) => {
@@ -489,6 +549,7 @@ export default function Planner() {
         onVertexClick={handleVertexClick}
         onVertexDragEnd={handleVertexDragEnd}
         onEdgeMidpointClick={handleEdgeMidpointClick}
+        onNetworkElementClick={handleNetworkElementClick}
         onMapReady={(m) => (mapRef.current = m)}
       />
 
@@ -512,6 +573,10 @@ export default function Planner() {
         onGPS={goToGPS}
         onOptimizeAzimuth={() => { setInitialPanelTab("orientation"); setPanelOpen(true); }}
         onMeasure={startMeasure}
+        onNetwork={() => {
+          if (!activeField || !activeField.closed) { toast.error("Prima chiudi il perimetro del campo"); return; }
+          setNetworkSheetOpen(true);
+        }}
         canUndo={canUndo}
         canClose={canClose}
         canDelete={canDelete}
@@ -529,6 +594,12 @@ export default function Planner() {
         <div className="fixed left-1/2 -translate-x-1/2 top-16 md:top-20 z-20 glass-panel rounded-full px-4 py-1.5 text-xs font-mono flex items-center gap-2" data-testid="obstacle-placement-hint">
           <span className="text-red-400 font-bold">⚠ {pendingObstacleType.label}</span>
           <span className="text-stone-400">Tocca la mappa per posizionare</span>
+        </div>
+      )}
+      {toolMode === "add-network" && pendingNetworkType && (
+        <div className="fixed left-1/2 -translate-x-1/2 top-16 md:top-20 z-20 glass-panel rounded-full px-4 py-1.5 text-xs font-mono flex items-center gap-2" data-testid="network-placement-hint">
+          <span className="text-sky-400 font-bold">💧 {pendingNetworkType.label}</span>
+          <span className="text-stone-400">{pendingNetworkType.id === "valvola" ? "Tocca vicino a un filare (snap 12m)" : "Tocca la mappa per posizionare"}</span>
         </div>
       )}
       {toolMode === "edit-perimeter" && activeField && (() => {
@@ -552,7 +623,7 @@ export default function Planner() {
       )}
 
       {/* Floating Parametri button */}
-      {activeField && activeField.closed && toolMode !== "edit-perimeter" && toolMode !== "measure" && (
+      {activeField && activeField.closed && toolMode !== "edit-perimeter" && toolMode !== "measure" && toolMode !== "add-network" && (
         <Button
           className="fixed right-3 md:right-6 bottom-24 md:bottom-28 z-20 h-14 w-14 md:h-16 md:w-16 rounded-full glass-panel bg-emerald-600/95 hover:bg-emerald-500 text-white shadow-2xl shadow-emerald-500/40 border border-emerald-400/50 p-0 flex flex-col gap-0.5 items-center justify-center"
           onClick={() => { setInitialPanelTab("config"); setPanelOpen(true); }}
@@ -594,6 +665,7 @@ export default function Planner() {
         onUpdateAzimuth={updateAzimuth}
         onRemoveObstacle={removeObstacle}
         onUpdateObstacle={updateObstacle}
+        onRemoveNetworkElement={removeNetworkElement}
         onExportGeoJSON={() => exportGeoJSON(activeField, plan)}
         onExportRowsCSV={() => exportRowsCSV(activeField, plan)}
         onExportPlantsCSV={() => exportPlantsCSV(activeField, plan)}
@@ -609,6 +681,12 @@ export default function Planner() {
         open={obstacleSheetOpen}
         onOpenChange={setObstacleSheetOpen}
         onSelectType={handleObstacleTypeSelected}
+      />
+
+      <NetworkSheet
+        open={networkSheetOpen}
+        onOpenChange={setNetworkSheetOpen}
+        onSelectType={handleNetworkTypeSelected}
       />
     </>
   );

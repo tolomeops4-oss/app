@@ -339,6 +339,25 @@ export function computeIrrigation(plan, irrigation) {
   };
 }
 
+// ---------- Snap helpers ----------
+
+export function snapToNearestRow(latlng, plan, thresholdM = 8) {
+  if (!plan?.rows || plan.rows.length === 0) return { snapped: false, lat: latlng.lat, lng: latlng.lng, rowId: null };
+  const target = turf.point([latlng.lng, latlng.lat]);
+  let best = null;
+  for (const row of plan.rows) {
+    // Check both endpoints (testata) — most common valve location
+    for (const [end, isEnd] of [[row.start, false], [row.end, true]]) {
+      const d = turf.distance(target, turf.point([end.lng, end.lat]), { units: "meters" });
+      if (d <= thresholdM && (!best || d < best.d)) {
+        best = { d, lat: end.lat, lng: end.lng, rowId: row.id, isEnd };
+      }
+    }
+  }
+  if (best) return { snapped: true, ...best };
+  return { snapped: false, lat: latlng.lat, lng: latlng.lng, rowId: null };
+}
+
 // ---------- Measurement helpers ----------
 
 export function pointsMetrics(points) {

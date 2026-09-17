@@ -1,4 +1,4 @@
-import { PlusCircle, Undo2, CheckCircle2, AlertTriangle, Trash2, Hand, Crosshair, Sparkles, Ruler } from "lucide-react";
+import { PlusCircle, Undo2, CheckCircle2, AlertTriangle, Trash2, Hand, Crosshair, Sparkles, Ruler, Droplets } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const btnBase = "flex flex-col items-center gap-0.5 min-w-[62px] md:min-w-[76px] h-14 md:h-16 rounded-xl transition-all touch-manipulation";
@@ -12,6 +12,7 @@ export default function Toolbar({
   onGPS,
   onOptimizeAzimuth,
   onMeasure,
+  onNetwork,
   canUndo,
   canClose,
   canDelete,
@@ -39,6 +40,7 @@ export default function Toolbar({
         {btn("undo", "Annulla", Undo2, false, onUndoPoint, "btn-undo-point", canUndo ? "" : "opacity-40 pointer-events-none")}
         {btn("close", "Chiudi/Salva", CheckCircle2, false, onCloseField, "btn-close-field", canClose ? "text-emerald-300" : "opacity-40 pointer-events-none")}
         {btn("add-obstacle-point", "Ostacolo", AlertTriangle, toolMode?.startsWith("add-obstacle"), () => onToolChange("add-obstacle-point"), "btn-add-obstacle")}
+        {btn("add-network", "Rete", Droplets, toolMode === "add-network", onNetwork, "btn-network", "text-sky-300")}
         {btn("delete-boundary", "Elimina", Trash2, false, onDeleteField, "btn-delete-boundary", canDelete ? "text-red-400 hover:text-red-300" : "opacity-40 pointer-events-none")}
         {btn("pan", "Sposta", Hand, toolMode === "pan", () => onToolChange("pan"), "btn-pan-mode")}
         {btn("gps", "GPS", Crosshair, false, onGPS, "btn-gps-position")}

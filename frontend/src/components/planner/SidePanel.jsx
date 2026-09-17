@@ -54,6 +54,7 @@ export default function SidePanel({
   open, onOpenChange, field, plan, irrigationResult,
   onUpdateConfig, onUpdateIrrigation, onUpdateAzimuth,
   onRemoveObstacle, onUpdateObstacle,
+  onRemoveNetworkElement,
   onExportGeoJSON, onExportRowsCSV, onExportPlantsCSV, onExportPDF, onImportGeoJSON,
   showPlants, setShowPlants, showRows, setShowRows, showBuffers, setShowBuffers,
   initialTab,
@@ -244,8 +245,7 @@ export default function SidePanel({
 
               {irrigationResult && (
                 <div className="pt-3 border-t border-stone-800 space-y-2">
-                  <div className="text-[11px] uppercase tracking-widest text-emerald-300 font-semibold">Riepilogo Idraulico</div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="text-[11px] uppercase tracking-widest text-emerald-300 font-semibold">Riepilogo Idraulico</div><div className="grid grid-cols-2 gap-2">
                     <MetricCard label="Metri ala" value={irrigationResult.totalMeters.toFixed(0)} unit="m" />
                     <MetricCard label="Gocciolatori" value={irrigationResult.totalEmitters.toLocaleString("it-IT")} unit="unità" />
                     <MetricCard label="Portata totale" value={irrigationResult.totalFlowM3h.toFixed(2)} unit="m³/h" />
@@ -273,6 +273,36 @@ export default function SidePanel({
                   </div>
                 </div>
               )}
+
+              {/* Network elements list */}
+              <div className="pt-3 border-t border-stone-800 space-y-2">
+                <div className="text-[11px] uppercase tracking-widest text-sky-300 font-semibold flex items-center gap-2">
+                  💧 Rete Installata ({field.networkElements?.length || 0})
+                </div>
+                <div className="rounded-lg border border-sky-700/40 bg-sky-950/20 p-2.5 text-[11px] text-sky-100/80">
+                  Usa il pulsante <b>Rete</b> nella barra strumenti in basso per posizionare pozzo, pompa, filtro e valvole di settore direttamente sulla mappa. Le valvole si agganciano automaticamente ai filari.
+                </div>
+                {(!field.networkElements || field.networkElements.length === 0) && (
+                  <div className="text-center text-stone-500 text-xs py-4">Nessun elemento posizionato.</div>
+                )}
+                {field.networkElements?.map((el) => (
+                  <div key={el.id} className="flex items-center gap-2 rounded-lg border border-stone-800 bg-stone-950/40 p-2" data-testid={`network-item-${el.id}`}>
+                    <div className="w-8 h-8 rounded-full bg-sky-950/60 border border-sky-500/50 flex items-center justify-center text-sky-300 font-bold text-sm flex-shrink-0">
+                      {el.type === "pozzo" ? "◎" : el.type === "pompa" ? "⚙" : el.type === "filtro" ? "⌘" : "▣"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-stone-100 truncate">{el.label}</div>
+                      <div className="text-[10px] font-mono text-stone-500 truncate">
+                        {el.lat.toFixed(5)}, {el.lng.toFixed(5)}
+                        {typeof el.sectorIndex === "number" && <span className="ml-2 text-sky-300">S{el.sectorIndex + 1}</span>}
+                      </div>
+                    </div>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-950/40 flex-shrink-0" onClick={() => onRemoveNetworkElement && onRemoveNetworkElement(el.id)} data-testid={`btn-remove-network-${el.id}`}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </TabsContent>
 
             {/* RESULTS */}
