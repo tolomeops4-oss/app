@@ -1,7 +1,75 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { v4 as uuidv4 } from "uuid";
 
-// ---------- GeoJSON ----------
+// ---------- Import GeoJSON ----------
+export function parseGeoJSONForField(gj) {
+  if (!gj || (gj.type !== "FeatureCollection" && gj.type !== "Feature" && gj.type !== "Polygon")) {
+    throw new Error("Formato GeoJSON non valido");
+  }
+  const features = gj.type === "FeatureCollection" ? gj.features : [gj.type === "Feature" ? gj : { type: "Feature", geometry: gj, properties: {} }];
+  let vertices = null;
+  const obstacles = [];
+  for (const feat of features) {
+    if (!feat.geometry) continue;
+    const kind = feat.properties?.kind;
+    if (feat.geometry.type === "Polygon") {
+      if (!vertices || kind === "field_boundary") {
+        const ring = feat.geometry.coordinates[0];
+        vertices = ring.slice(0, -1).map((c) => ({ id: uuidv4(), lat: c[1], lng: c[0] }));
+      } else if (kind === "obstacle") {
+        const ring = feat.geometry.coordinates[0];
+        obstacles.push({
+          id: uuidv4(),
+          type: feat.properties?.obstacleType || "fabbricato",
+          geomType: "polygon",
+          points: ring.slice(0, -1).map((c) => ({ id: uuidv4(), lat: c[1], lng: c[0] })),
+          bufferAlong: 4.0, bufferSide: 2.0,
+          label: feat.properties?.label || "",
+        });
+      }
+    } else if (feat.geometry.type === "Point" && kind === "obstacle") {
+      obstacles.push({
+        id: uuidv4(),
+        type: feat.properties?.obstacleType || "palo",
+        geomType: "point",
+        points: [{ id: uuidv4(), lat: feat.geometry.coordinates[1], lng: feat.geometry.coordinates[0] }],
+        bufferAlong: 4.0, bufferSide: 2.0,
+      });
+    }
+  }
+  if (!vertices || vertices.length < 3) throw new Error("Nessun perimetro (Polygon) valido trovato nel file");
+  return { vertices, obstacles };
+}
+
+export function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+// ---------- Materials estimate ----------
+export function estimateMaterials(plan, options = {}) {
+  if (!plan || !plan.rows) return null;
+  const postSpacing = options.postSpacing || 6.0; // m between intermediate posts
+  const wiresPerRow = options.wiresPerRow || 2;
+  let endPosts = 0;
+  let intermediatePosts = 0;
+  let tutors = 0;
+  let wireMeters = 0;
+  for (const r of plan.rows) {
+    endPosts += 2;
+    intermediatePosts += Math.max(0, Math.floor(r.length / postSpacing) - 1);
+    tutors += r.plants.length;
+    wireMeters += r.length * wiresPerRow;
+  }
+  return { endPosts, intermediatePosts, totalPosts: endPosts + intermediatePosts, tutors, wireMeters };
+}
+
+// ---------- GeoJSON export ----------
 export function buildGeoJSON(field, plan, irrigation) {
   const features = [];
   if (field.vertices && field.vertices.length >= 3) {

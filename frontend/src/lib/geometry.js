@@ -241,14 +241,34 @@ export function generatePlan(field) {
 export function optimizeAzimuth(field, step = 5) {
   const angles = [];
   for (let a = 0; a < 180; a += step) angles.push(a);
-  let best = null;
+  const scored = [];
   for (const a of angles) {
     const plan = generatePlan({ ...field, azimuth: a });
     if (!plan) continue;
     const score = plan.totalPlants - 3 * plan.shortRowCount + plan.avgRowLength * 0.05;
-    if (!best || score > best.score) best = { azimuth: a, score, plan };
+    scored.push({ azimuth: a, score, plan });
   }
-  return best;
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0] || null;
+  const top3 = scored.slice(0, 3);
+  return best ? { ...best, top3 } : null;
+}
+
+// Compute azimuths of every edge of the polygon (0-359, then normalize to 0-179)
+export function polygonEdgeAzimuths(vertices) {
+  if (!vertices || vertices.length < 3) return [];
+  const results = [];
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const bearing = turf.bearing(turf.point([a.lng, a.lat]), turf.point([b.lng, b.lat]));
+    // bearing is -180..180 from North; normalize to 0..179 (rows have no direction)
+    let deg = ((bearing % 360) + 360) % 360;
+    if (deg >= 180) deg -= 180;
+    const len = turf.distance(turf.point([a.lng, a.lat]), turf.point([b.lng, b.lat]), { units: "meters" });
+    results.push({ index: i, azimuth: deg, length: len, from: a, to: b });
+  }
+  return results;
 }
 
 // ---------- Irrigation calculations ----------

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Copy, Trash2, Edit2, Check, X, Trees } from "lucide-react";
+import { Plus, Copy, Trash2, Edit2, Check, X, Trees, Pencil } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export default function FieldsDrawer({
@@ -15,6 +15,7 @@ export default function FieldsDrawer({
   onRename,
   onDuplicate,
   onDelete,
+  onEditPerimeter,
 }) {
   const [newName, setNewName] = useState("");
   const [editId, setEditId] = useState(null);
@@ -104,7 +105,17 @@ export default function FieldsDrawer({
                     {isActive && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold uppercase tracking-wider flex-shrink-0">Attivo</span>}
                   </button>
                 )}
-                <div className="mt-2 flex items-center gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  {f.closed && (
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white gap-1"
+                      onClick={() => onEditPerimeter(f.id)}
+                      data-testid={`btn-edit-perimeter-${f.id}`}
+                    >
+                      <Pencil className="w-3 h-3" /> Modifica Perimetro
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] text-stone-300 hover:bg-stone-800" onClick={() => { setEditId(f.id); setEditName(f.name); }} data-testid={`btn-rename-${f.id}`}>
                     <Edit2 className="w-3 h-3 mr-1" /> Rinomina
                   </Button>

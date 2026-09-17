@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Settings2 } from "lucide-react";
 import MapCanvas from "@/components/planner/MapCanvas";
 import TopBar from "@/components/planner/TopBar";
 import Toolbar from "@/components/planner/Toolbar";
 import FieldsDrawer from "@/components/planner/FieldsDrawer";
 import SidePanel from "@/components/planner/SidePanel";
-import { DEFAULT_CONFIG, DEFAULT_IRRIGATION, OBSTACLE_TYPES } from "@/lib/defaults";
-import { generatePlan, optimizeAzimuth, computeIrrigation, polygonAreaM2, verticesToPolygon } from "@/lib/geometry";
-import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF } from "@/lib/exportUtils";
+import ObstacleSheet from "@/components/planner/ObstacleSheet";
+import EditPerimeterBar from "@/components/planner/EditPerimeterBar";
+import { DEFAULT_CONFIG, DEFAULT_IRRIGATION } from "@/lib/defaults";
+import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon } from "@/lib/geometry";
+import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF, parseGeoJSONForField, readFileAsText } from "@/lib/exportUtils";
 import * as api from "@/lib/api";
 
 export default function Planner() {
@@ -16,18 +20,23 @@ export default function Planner() {
   const [activeFieldId, setActiveFieldId] = useState(null);
   const [tileLayerId, setTileLayerId] = useState("google_hybrid");
   const [toolMode, setToolMode] = useState("pan");
+  const [pendingObstacleType, setPendingObstacleType] = useState(null);
+  const [obstacleSheetOpen, setObstacleSheetOpen] = useState(false);
+  const [editSnapshot, setEditSnapshot] = useState(null); // vertices backup when entering edit-perimeter
   const [center, setCenter] = useState([40.4917, 17.9975]);
   const [zoom, setZoom] = useState(16);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [initialPanelTab, setInitialPanelTab] = useState("config");
   const [showPlants, setShowPlants] = useState(true);
   const [showRows, setShowRows] = useState(true);
   const [showBuffers, setShowBuffers] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [drawingObstaclePoints, setDrawingObstaclePoints] = useState([]);
   const mapRef = useRef(null);
   const saveTimersRef = useRef({});
   const initLoadRef = useRef(false);
+  const fieldsRef = useRef(fields);
+  useEffect(() => { fieldsRef.current = fields; }, [fields]);
 
   // Load fields
   useEffect(() => {
@@ -46,15 +55,12 @@ export default function Planner() {
         }
       } catch (e) {
         toast.error("Impossibile caricare i campi dal server");
-      } finally {
-        setLoading(false);
-      }
+      } finally { setLoading(false); }
     })();
   }, []);
 
   const activeField = useMemo(() => fields.find((f) => f.id === activeFieldId), [fields, activeFieldId]);
 
-  // Compute plan and irrigation
   const plan = useMemo(() => {
     if (!activeField || !activeField.closed || activeField.vertices.length < 3) return null;
     try { return generatePlan(activeField); } catch (e) { console.error(e); return null; }
@@ -65,7 +71,6 @@ export default function Planner() {
     try { return computeIrrigation(plan, activeField.irrigation); } catch (e) { console.error(e); return null; }
   }, [plan, activeField?.irrigation]);
 
-  // Enrich fields with area for drawer display
   const fieldsWithMeta = useMemo(() => fields.map((f) => {
     let ha = undefined;
     if (f.closed && f.vertices && f.vertices.length >= 3) {
@@ -77,7 +82,6 @@ export default function Planner() {
     return { ...f, _areaHa: ha };
   }), [fields]);
 
-  // Update helpers
   const updateFieldLocal = useCallback((id, patch) => {
     setFields((prev) => prev.map((f) => f.id === id ? { ...f, ...(typeof patch === "function" ? patch(f) : patch) } : f));
   }, []);
@@ -98,52 +102,70 @@ export default function Planner() {
     }, 600);
   }, []);
 
-  // Keep a ref of fields for save
-  const fieldsRef = useRef(fields);
-  useEffect(() => { fieldsRef.current = fields; }, [fields]);
-
-  // ============ Tool handlers ============
-
-  const handleMapClick = useCallback((latlng, mode, netKind) => {
+  // ============ Map click handler ============
+  const handleMapClick = useCallback((latlng, mode) => {
     if (!activeField) return;
     if (mode === "draw-field") {
       if (activeField.closed) {
-        toast.info("Campo già chiuso. Crea un nuovo campo per disegnare un altro perimetro.");
+        toast.info("Campo già chiuso. Usa 'Nuovo Campo' per crearne un altro.");
         return;
       }
       const v = { id: uuidv4(), lat: latlng.lat, lng: latlng.lng };
       updateFieldLocal(activeField.id, (f) => ({ vertices: [...f.vertices, v] }));
       scheduleSave(activeField.id);
-    } else if (mode === "add-obstacle-point") {
-      const info = OBSTACLE_TYPES[0];
+    } else if (mode === "add-obstacle-point" && pendingObstacleType) {
+      const t = pendingObstacleType;
       const obs = {
         id: uuidv4(),
-        type: info.id,
+        type: t.id,
         geomType: "point",
         points: [{ id: uuidv4(), lat: latlng.lat, lng: latlng.lng }],
-        bufferAlong: info.along,
-        bufferSide: info.side,
+        bufferAlong: t.along,
+        bufferSide: t.side,
       };
       updateFieldLocal(activeField.id, (f) => ({ obstacles: [...(f.obstacles || []), obs] }));
       scheduleSave(activeField.id);
-      toast.success("Ostacolo aggiunto");
+      toast.success(`Ostacolo "${t.label}" posizionato`);
+      // stay in obstacle mode to allow multiple placements
     }
-  }, [activeField, updateFieldLocal, scheduleSave]);
+  }, [activeField, updateFieldLocal, scheduleSave, pendingObstacleType]);
 
-  const handleVertexClick = useCallback((vertex, idx) => {
+  const handleVertexClick = useCallback((vertex) => {
     if (!activeField) return;
     if (!activeField.closed) {
-      // Remove vertex during drawing
       updateFieldLocal(activeField.id, (f) => ({ vertices: f.vertices.filter((v) => v.id !== vertex.id) }));
       scheduleSave(activeField.id);
-    } else {
-      // Confirm delete or add-intermediate menu could go here; for now remove with confirm
+    } else if (toolMode === "edit-perimeter") {
+      // In edit mode: click on vertex removes it (need >= 3 remaining)
+      if (activeField.vertices.length <= 3) {
+        toast.error("Servono almeno 3 vertici");
+        return;
+      }
       if (window.confirm("Eliminare questo vertice?")) {
         updateFieldLocal(activeField.id, (f) => ({ vertices: f.vertices.filter((v) => v.id !== vertex.id) }));
-        scheduleSave(activeField.id);
       }
     }
+  }, [activeField, updateFieldLocal, scheduleSave, toolMode]);
+
+  const handleVertexDragEnd = useCallback((vid, lat, lng) => {
+    if (!activeField) return;
+    updateFieldLocal(activeField.id, (f) => ({
+      vertices: f.vertices.map((v) => v.id === vid ? { ...v, lat, lng } : v),
+    }));
+    // Save only after finishing edit mode
+    if (!activeField.closed) scheduleSave(activeField.id);
   }, [activeField, updateFieldLocal, scheduleSave]);
+
+  const handleEdgeMidpointClick = useCallback((edgeIndex, lat, lng) => {
+    if (!activeField || toolMode !== "edit-perimeter") return;
+    const newV = { id: uuidv4(), lat, lng };
+    updateFieldLocal(activeField.id, (f) => {
+      const arr = [...f.vertices];
+      arr.splice(edgeIndex + 1, 0, newV);
+      return { vertices: arr };
+    });
+    toast.success("Punto intermedio aggiunto");
+  }, [activeField, updateFieldLocal, toolMode]);
 
   const undoLastPoint = useCallback(() => {
     if (!activeField || activeField.closed) return;
@@ -160,6 +182,7 @@ export default function Planner() {
     updateFieldLocal(activeField.id, { closed: true });
     scheduleSave(activeField.id);
     setToolMode("pan");
+    setInitialPanelTab("config");
     setPanelOpen(true);
     const poly = verticesToPolygon([...activeField.vertices]);
     const area = poly ? polygonAreaM2(poly) : 0;
@@ -170,40 +193,63 @@ export default function Planner() {
     if (!activeField) return;
     if (!window.confirm(`Eliminare "${activeField.name}"?`)) return;
     handleDeleteField(activeField.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeField]);
 
   const goToGPS = useCallback(() => {
-    if (!navigator.geolocation) { toast.error("Geolocalizzazione non disponibile"); return; }
+    if (!navigator.geolocation) {
+      toast.error("Geolocalizzazione non disponibile. Usa la ricerca coordinate (es. 40.49,17.99)");
+      return;
+    }
+    toast.info("Ricerca posizione GPS...");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCenter([pos.coords.latitude, pos.coords.longitude]);
         setZoom(18);
         toast.success("Centrato sulla tua posizione");
       },
-      () => toast.error("Impossibile ottenere la posizione GPS"),
+      () => toast.error("Impossibile ottenere GPS. Usa la ricerca coordinate."),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }, []);
 
-  const handleOptimize = useCallback((step) => {
-    if (!activeField || !activeField.closed) { toast.error("Chiudi prima il campo"); return; }
-    toast.info(`Ottimizzazione azimut (passo ${step}°) in corso...`);
-    setTimeout(() => {
-      try {
-        const res = optimizeAzimuth(activeField, step);
-        if (res) {
-          updateFieldLocal(activeField.id, { azimuth: res.azimuth });
-          scheduleSave(activeField.id);
-          toast.success(`Azimut ottimale: ${res.azimuth}° (${res.plan.totalPlants} piante)`);
-        } else {
-          toast.error("Ottimizzazione fallita");
-        }
-      } catch (e) { toast.error("Errore ottimizzazione"); }
-    }, 50);
-  }, [activeField, updateFieldLocal, scheduleSave]);
+  // ============ Tool bar handler ============
+  const handleToolChange = useCallback(async (mode) => {
+    if (mode === "draw-field") {
+      // If active field is closed or missing, create a new one for drawing
+      if (!activeField || activeField.closed) {
+        try {
+          const n = `Campo ${fieldsRef.current.length + 1}`;
+          const f = await api.createField(n);
+          setFields((prev) => [...prev, f]);
+          setActiveFieldId(f.id);
+          setToolMode("draw-field");
+          toast.success(`"${n}" — tocca la mappa per aggiungere vertici`);
+          return;
+        } catch (e) { toast.error("Errore nuovo campo"); return; }
+      }
+      setToolMode("draw-field");
+      toast.info("Tocca la mappa per aggiungere vertici");
+    } else if (mode === "add-obstacle-point") {
+      if (!activeField || !activeField.closed) {
+        toast.error("Prima chiudi il perimetro del campo");
+        return;
+      }
+      setObstacleSheetOpen(true);
+    } else {
+      setToolMode(mode);
+      setPendingObstacleType(null);
+    }
+  }, [activeField]);
+
+  const handleObstacleTypeSelected = useCallback((t) => {
+    setPendingObstacleType(t);
+    setToolMode("add-obstacle-point");
+    setObstacleSheetOpen(false);
+    toast.info(`${t.label} — tocca la mappa per posizionare`);
+  }, []);
 
   // ============ Field CRUD ============
-
   const handleCreateField = useCallback(async (name) => {
     try {
       const f = await api.createField(name);
@@ -211,7 +257,7 @@ export default function Planner() {
       setActiveFieldId(f.id);
       setFieldsOpen(false);
       setToolMode("draw-field");
-      toast.success(`Campo "${name}" creato. Tocca la mappa per posizionare i vertici.`);
+      toast.success(`"${name}" creato. Tocca la mappa per i vertici.`);
     } catch (e) { toast.error("Errore creazione campo"); }
   }, []);
 
@@ -231,20 +277,15 @@ export default function Planner() {
   const handleDeleteField = useCallback(async (id) => {
     try {
       await api.deleteField(id);
-      setFields((prev) => prev.filter((f) => f.id !== id));
-      if (activeFieldId === id) {
-        setActiveFieldId((prev) => {
-          const remaining = fieldsRef.current.filter((f) => f.id !== id);
-          return remaining[0]?.id || null;
-        });
-      }
+      const remaining = fieldsRef.current.filter((f) => f.id !== id);
+      setFields(remaining);
+      if (activeFieldId === id) setActiveFieldId(remaining[0]?.id || null);
       toast.success("Campo eliminato");
     } catch (e) { toast.error("Errore eliminazione"); }
   }, [activeFieldId]);
 
   const handleSelectField = useCallback((id) => {
     setActiveFieldId(id);
-    // Center map on field
     const f = fields.find((x) => x.id === id);
     if (f && f.vertices.length >= 1) {
       const lat = f.vertices.reduce((s, v) => s + v.lat, 0) / f.vertices.length;
@@ -254,8 +295,40 @@ export default function Planner() {
     }
   }, [fields]);
 
-  // ============ Config / Irrigation / Azimuth updates ============
+  // ============ Edit perimeter ============
+  const startEditPerimeter = useCallback((fid) => {
+    const f = fieldsRef.current.find((x) => x.id === fid);
+    if (!f || !f.closed) { toast.error("Il campo deve essere chiuso per essere modificato"); return; }
+    setActiveFieldId(fid);
+    setEditSnapshot(JSON.parse(JSON.stringify(f.vertices)));
+    setToolMode("edit-perimeter");
+    setFieldsOpen(false);
+    // Center map on the field
+    const lat = f.vertices.reduce((s, v) => s + v.lat, 0) / f.vertices.length;
+    const lng = f.vertices.reduce((s, v) => s + v.lng, 0) / f.vertices.length;
+    setCenter([lat, lng]);
+    setZoom(17);
+    toast.info("Trascina i vertici per modificarli. Tocca + tra due punti per aggiungerne uno.");
+  }, []);
 
+  const saveEditPerimeter = useCallback(() => {
+    if (!activeField) return;
+    if (activeField.vertices.length < 3) { toast.error("Servono almeno 3 vertici"); return; }
+    scheduleSave(activeField.id);
+    setEditSnapshot(null);
+    setToolMode("pan");
+    toast.success("Perimetro aggiornato");
+  }, [activeField, scheduleSave]);
+
+  const cancelEditPerimeter = useCallback(() => {
+    if (!activeField || !editSnapshot) { setToolMode("pan"); setEditSnapshot(null); return; }
+    updateFieldLocal(activeField.id, { vertices: editSnapshot });
+    setEditSnapshot(null);
+    setToolMode("pan");
+    toast.info("Modifiche annullate");
+  }, [activeField, editSnapshot, updateFieldLocal]);
+
+  // ============ Config / Irrigation / Azimuth ============
   const updateConfig = useCallback((patch) => {
     if (!activeField) return;
     updateFieldLocal(activeField.id, (f) => ({ config: { ...f.config, ...patch } }));
@@ -287,9 +360,7 @@ export default function Planner() {
   }, [activeField, updateFieldLocal, scheduleSave]);
 
   // ============ Search / Quick locations ============
-
   const handleSearch = useCallback(async (q) => {
-    // Detect coordinates
     const coordMatch = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
     if (coordMatch) {
       const lat = parseFloat(coordMatch[1]);
@@ -301,7 +372,6 @@ export default function Planner() {
         return;
       }
     }
-    // Nominatim
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
       const data = await res.json();
@@ -309,9 +379,7 @@ export default function Planner() {
         setCenter([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
         setZoom(15);
         toast.success(`Trovato: ${data[0].display_name.substring(0, 50)}`);
-      } else {
-        toast.error("Località non trovata");
-      }
+      } else { toast.error("Località non trovata"); }
     } catch (e) { toast.error("Errore ricerca"); }
   }, []);
 
@@ -320,7 +388,30 @@ export default function Planner() {
     setZoom(loc.zoom || 15);
   }, []);
 
-  // ============ Exports ============
+  // ============ Import / Export ============
+  const handleImportGeoJSON = useCallback(async (file) => {
+    if (!activeField) return;
+    try {
+      const text = await readFileAsText(file);
+      const gj = JSON.parse(text);
+      const { vertices, obstacles } = parseGeoJSONForField(gj);
+      updateFieldLocal(activeField.id, {
+        vertices,
+        obstacles,
+        closed: true,
+      });
+      scheduleSave(activeField.id);
+      toast.success(`GeoJSON importato: ${vertices.length} vertici, ${obstacles.length} ostacoli`);
+      // Center map on imported field
+      const lat = vertices.reduce((s, v) => s + v.lat, 0) / vertices.length;
+      const lng = vertices.reduce((s, v) => s + v.lng, 0) / vertices.length;
+      setCenter([lat, lng]);
+      setZoom(17);
+    } catch (e) {
+      console.error(e);
+      toast.error("Errore import: " + (e.message || "formato non valido"));
+    }
+  }, [activeField, updateFieldLocal, scheduleSave]);
 
   const doExportPDF = useCallback(async () => {
     if (!activeField || !plan) return;
@@ -329,16 +420,24 @@ export default function Planner() {
     try {
       await exportPDF({ field: activeField, plan, irrigationResult, mapElement: mapEl });
       toast.success("Report PDF generato");
-    } catch (e) {
-      console.error(e);
-      toast.error("Errore generazione PDF");
-    }
+    } catch (e) { console.error(e); toast.error("Errore generazione PDF"); }
   }, [activeField, plan, irrigationResult]);
 
-  // ============ Tool state helpers ============
+  // ============ Tool state ============
   const canUndo = activeField && !activeField.closed && activeField.vertices.length > 0;
   const canClose = activeField && !activeField.closed && activeField.vertices.length >= 3;
   const canDelete = !!activeField;
+
+  // Live info
+  const liveInfo = useMemo(() => {
+    if (!activeField || activeField.closed || activeField.vertices.length < 1) return null;
+    let ha = null;
+    if (activeField.vertices.length >= 3) {
+      const poly = verticesToPolygon(activeField.vertices);
+      ha = poly ? polygonAreaM2(poly) / 10000 : null;
+    }
+    return { count: activeField.vertices.length, ha };
+  }, [activeField?.vertices, activeField?.closed]);
 
   return (
     <>
@@ -355,6 +454,8 @@ export default function Planner() {
         showBuffers={showBuffers}
         onMapClick={handleMapClick}
         onVertexClick={handleVertexClick}
+        onVertexDragEnd={handleVertexDragEnd}
+        onEdgeMidpointClick={handleEdgeMidpointClick}
         onMapReady={(m) => (mapRef.current = m)}
       />
 
@@ -364,52 +465,60 @@ export default function Planner() {
         tileLayerId={tileLayerId}
         onTileLayerChange={setTileLayerId}
         onOpenFields={() => setFieldsOpen(true)}
-        onOpenPanel={() => setPanelOpen(true)}
+        onOpenPanel={() => { setInitialPanelTab("config"); setPanelOpen(true); }}
         onSearch={handleSearch}
         onQuickLocation={handleQuickLocation}
       />
 
       <Toolbar
         toolMode={toolMode}
-        onToolChange={async (mode) => {
-          if (mode === "draw-field" && activeField && activeField.closed) {
-            // Auto-create a new field for drawing
-            try {
-              const n = `Campo ${fields.length + 1}`;
-              const f = await api.createField(n);
-              setFields((prev) => [...prev, f]);
-              setActiveFieldId(f.id);
-              setToolMode("draw-field");
-              toast.success(`Nuovo "${n}" — tocca la mappa per i vertici`);
-              return;
-            } catch (e) { toast.error("Errore nuovo campo"); return; }
-          }
-          setToolMode(mode);
-        }}
+        onToolChange={handleToolChange}
         onUndoPoint={undoLastPoint}
         onCloseField={closeField}
         onDeleteField={deleteActive}
         onGPS={goToGPS}
-        onOptimizeAzimuth={() => handleOptimize(5)}
+        onOptimizeAzimuth={() => { setInitialPanelTab("orientation"); setPanelOpen(true); }}
         canUndo={canUndo}
         canClose={canClose}
         canDelete={canDelete}
       />
 
-      {/* Live area indicator while drawing */}
-      {activeField && !activeField.closed && activeField.vertices.length >= 2 && (
+      {/* Drawing hint / live info */}
+      {toolMode === "draw-field" && liveInfo && (
         <div className="fixed left-1/2 -translate-x-1/2 top-16 md:top-20 z-20 glass-panel rounded-full px-4 py-1.5 text-xs font-mono flex items-center gap-3" data-testid="live-perimeter-info">
-          <span className="text-emerald-300">{activeField.vertices.length} vertici</span>
-          {activeField.vertices.length >= 3 && (() => {
-            const poly = verticesToPolygon(activeField.vertices);
-            const area = poly ? polygonAreaM2(poly) : 0;
-            return <span className="text-stone-300">≈ {(area / 10000).toFixed(3)} ha</span>;
-          })()}
-          <span className="text-stone-500 uppercase tracking-widest text-[10px]">Tocca "Chiudi" per salvare</span>
+          <span className="text-emerald-300 font-bold">Punti: {liveInfo.count}</span>
+          {liveInfo.ha !== null && <span className="text-stone-300">≈ {liveInfo.ha.toFixed(3)} ha</span>}
+          <span className="text-stone-500 uppercase tracking-widest text-[10px] hidden sm:inline">Tocca mappa · "Chiudi/Salva" per finalizzare</span>
         </div>
       )}
+      {toolMode === "add-obstacle-point" && pendingObstacleType && (
+        <div className="fixed left-1/2 -translate-x-1/2 top-16 md:top-20 z-20 glass-panel rounded-full px-4 py-1.5 text-xs font-mono flex items-center gap-2" data-testid="obstacle-placement-hint">
+          <span className="text-red-400 font-bold">⚠ {pendingObstacleType.label}</span>
+          <span className="text-stone-400">Tocca la mappa per posizionare</span>
+        </div>
+      )}
+      {toolMode === "edit-perimeter" && activeField && (() => {
+        let ha = null;
+        if (activeField.vertices.length >= 3) {
+          const p = verticesToPolygon(activeField.vertices);
+          if (p) ha = polygonAreaM2(p) / 10000;
+        }
+        return <EditPerimeterBar vertexCount={activeField.vertices.length} areaHa={ha} onSave={saveEditPerimeter} onCancel={cancelEditPerimeter} />;
+      })()}
 
-      {/* Loading */}
+      {/* Floating Parametri button */}
+      {activeField && activeField.closed && toolMode !== "edit-perimeter" && (
+        <Button
+          className="fixed right-3 md:right-6 bottom-24 md:bottom-28 z-20 h-14 w-14 md:h-16 md:w-16 rounded-full glass-panel bg-emerald-600/95 hover:bg-emerald-500 text-white shadow-2xl shadow-emerald-500/40 border border-emerald-400/50 p-0 flex flex-col gap-0.5 items-center justify-center"
+          onClick={() => { setInitialPanelTab("config"); setPanelOpen(true); }}
+          data-testid="btn-floating-params"
+          title="Parametri Impianto"
+        >
+          <Settings2 className="w-5 h-5 md:w-6 md:h-6" />
+          <span className="text-[8px] md:text-[9px] font-bold uppercase tracking-wider leading-none">Param.</span>
+        </Button>
+      )}
+
       {loading && (
         <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-center justify-center">
           <div className="text-emerald-300 font-mono text-sm animate-pulse">Caricamento Progetto Oliveto...</div>
@@ -426,6 +535,7 @@ export default function Planner() {
         onRename={handleRenameField}
         onDuplicate={handleDuplicateField}
         onDelete={handleDeleteField}
+        onEditPerimeter={startEditPerimeter}
       />
 
       <SidePanel
@@ -437,17 +547,23 @@ export default function Planner() {
         onUpdateConfig={updateConfig}
         onUpdateIrrigation={updateIrrigation}
         onUpdateAzimuth={updateAzimuth}
-        onFastOptimize={() => handleOptimize(5)}
-        onFineOptimize={() => handleOptimize(1)}
         onRemoveObstacle={removeObstacle}
         onUpdateObstacle={updateObstacle}
         onExportGeoJSON={() => exportGeoJSON(activeField, plan)}
         onExportRowsCSV={() => exportRowsCSV(activeField, plan)}
         onExportPlantsCSV={() => exportPlantsCSV(activeField, plan)}
         onExportPDF={doExportPDF}
+        onImportGeoJSON={handleImportGeoJSON}
         showPlants={showPlants} setShowPlants={setShowPlants}
         showRows={showRows} setShowRows={setShowRows}
         showBuffers={showBuffers} setShowBuffers={setShowBuffers}
+        initialTab={initialPanelTab}
+      />
+
+      <ObstacleSheet
+        open={obstacleSheetOpen}
+        onOpenChange={setObstacleSheetOpen}
+        onSelectType={handleObstacleTypeSelected}
       />
     </>
   );

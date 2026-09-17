@@ -17,8 +17,10 @@ body {
     background: #0b0e0c;
     color: #d1d5db;
     overscroll-behavior: none;
-    touch-action: manipulation;
 }
+
+/* Prevent iOS double-tap zoom only on buttons - not on map */
+button, [role="button"] { touch-action: manipulation; }
 
 code, .font-mono { font-family: var(--font-mono); }
 

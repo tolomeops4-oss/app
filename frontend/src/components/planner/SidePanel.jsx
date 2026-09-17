@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -7,9 +7,10 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Settings2, Droplets, BarChart3, ShieldAlert, Download, FileJson, FileText, Table, Trash2, Radar } from "lucide-react";
-import AzimuthCompass from "./AzimuthCompass";
+import { Settings2, Droplets, BarChart3, ShieldAlert, Download, FileJson, FileText, Table, Trash2, Compass, Upload, Package } from "lucide-react";
+import OrientationPanel from "./OrientationPanel";
 import { VARIETIES, OBSTACLE_TYPES } from "@/lib/defaults";
+import { estimateMaterials } from "@/lib/exportUtils";
 
 function NumberField({ label, value, onChange, min, max, step, unit, testId, hint }) {
   return (
@@ -52,12 +53,13 @@ function MetricCard({ label, value, unit, accent }) {
 export default function SidePanel({
   open, onOpenChange, field, plan, irrigationResult,
   onUpdateConfig, onUpdateIrrigation, onUpdateAzimuth,
-  onFineOptimize, onFastOptimize,
   onRemoveObstacle, onUpdateObstacle,
-  onExportGeoJSON, onExportRowsCSV, onExportPlantsCSV, onExportPDF,
+  onExportGeoJSON, onExportRowsCSV, onExportPlantsCSV, onExportPDF, onImportGeoJSON,
   showPlants, setShowPlants, showRows, setShowRows, showBuffers, setShowBuffers,
+  initialTab,
 }) {
-  const [tab, setTab] = useState("config");
+  const [tab, setTab] = useState(initialTab || "config");
+  const fileInputRef = useRef(null);
 
   if (!field) {
     return (
@@ -71,6 +73,14 @@ export default function SidePanel({
 
   const cfg = field.config;
   const irr = field.irrigation;
+  const materials = estimateMaterials(plan);
+
+  const handleImportClick = () => fileInputRef.current?.click();
+  const handleImportChange = (e) => {
+    const f = e.target.files?.[0];
+    if (f && onImportGeoJSON) onImportGeoJSON(f);
+    e.target.value = "";
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -83,58 +93,43 @@ export default function SidePanel({
         </SheetHeader>
 
         <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid grid-cols-4 mx-4 mt-3 bg-stone-900/60 border border-stone-800 rounded-xl h-10 p-0.5">
-            <TabsTrigger value="config" className="text-[11px] gap-1 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg" data-testid="tab-config">
-              <Settings2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Sesto</span>
+          <TabsList className="grid grid-cols-5 mx-3 mt-3 bg-stone-900/60 border border-stone-800 rounded-xl h-10 p-0.5">
+            <TabsTrigger value="config" className="text-[10px] gap-0.5 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg px-1" data-testid="tab-config">
+              <Settings2 className="w-3.5 h-3.5" /><span className="hidden md:inline">Sesto</span>
             </TabsTrigger>
-            <TabsTrigger value="obstacles" className="text-[11px] gap-1 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg" data-testid="tab-obstacles">
-              <ShieldAlert className="w-3.5 h-3.5" /><span className="hidden sm:inline">Ostacoli</span>
+            <TabsTrigger value="orientation" className="text-[10px] gap-0.5 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg px-1" data-testid="tab-orientation">
+              <Compass className="w-3.5 h-3.5" /><span className="hidden md:inline">Orient.</span>
             </TabsTrigger>
-            <TabsTrigger value="irrigation" className="text-[11px] gap-1 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg" data-testid="tab-irrigation">
-              <Droplets className="w-3.5 h-3.5" /><span className="hidden sm:inline">Irrigaz.</span>
+            <TabsTrigger value="obstacles" className="text-[10px] gap-0.5 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg px-1" data-testid="tab-obstacles">
+              <ShieldAlert className="w-3.5 h-3.5" /><span className="hidden md:inline">Ostacoli</span>
             </TabsTrigger>
-            <TabsTrigger value="results" className="text-[11px] gap-1 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg" data-testid="tab-results">
-              <BarChart3 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Risultati</span>
+            <TabsTrigger value="irrigation" className="text-[10px] gap-0.5 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg px-1" data-testid="tab-irrigation">
+              <Droplets className="w-3.5 h-3.5" /><span className="hidden md:inline">Irrigaz.</span>
+            </TabsTrigger>
+            <TabsTrigger value="results" className="text-[10px] gap-0.5 data-[state=active]:bg-emerald-600/90 data-[state=active]:text-white rounded-lg px-1" data-testid="tab-results">
+              <BarChart3 className="w-3.5 h-3.5" /><span className="hidden md:inline">Risult.</span>
             </TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-4">
             {/* CONFIG */}
-            <TabsContent value="config" className="space-y-5 mt-0">
-              <AzimuthCompass
-                azimuth={field.azimuth}
-                onChange={onUpdateAzimuth}
-                plantsCount={plan?.totalPlants}
-                avgLen={plan?.avgRowLength}
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" onClick={onFastOptimize} className="bg-amber-950/40 border-amber-700/60 text-amber-300 hover:bg-amber-900/50 text-xs gap-1 h-9" data-testid="btn-fast-optimize">
-                  <Radar className="w-3.5 h-3.5" /> Scan 5° veloce
-                </Button>
-                <Button variant="outline" size="sm" onClick={onFineOptimize} className="bg-emerald-950/40 border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/50 text-xs gap-1 h-9" data-testid="btn-fine-optimize">
-                  <Radar className="w-3.5 h-3.5" /> Scan 1° fine
-                </Button>
+            <TabsContent value="config" className="space-y-4 mt-0">
+              <NumberField label="Distanza tra file (interfilare)" value={cfg.interRow} onChange={(v) => onUpdateConfig({ interRow: v })} min={2.5} max={7.0} step={0.1} unit="m" testId="input-inter-row" hint="Range consigliato 3.5 - 4.5 m per superintensivo" />
+              <NumberField label="Distanza tra piante sulla fila" value={cfg.interPlant} onChange={(v) => onUpdateConfig({ interPlant: v })} min={0.8} max={3.0} step={0.1} unit="m" testId="input-inter-plant" />
+              <NumberField label="Capezzagna di testata (lungo fila)" value={cfg.headland} onChange={(v) => onUpdateConfig({ headland: v })} min={4} max={25} step={0.5} unit="m" testId="input-headland" />
+              <NumberField label="Margine laterale (parallelo alle file)" value={cfg.sideMargin} onChange={(v) => onUpdateConfig({ sideMargin: v })} min={1} max={10} step={0.5} unit="m" testId="input-side-margin" />
+              <NumberField label="Lunghezza minima filare accettabile" value={cfg.minSegment} onChange={(v) => onUpdateConfig({ minSegment: v })} min={5} max={80} step={1} unit="m" testId="input-min-segment" hint="Filari più corti verranno segnalati in arancione" />
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">Varietà</Label>
+                <Select value={cfg.variety} onValueChange={(v) => onUpdateConfig({ variety: v })}>
+                  <SelectTrigger className="bg-stone-900/70 border-stone-700 h-9 text-sm" data-testid="select-variety"><SelectValue /></SelectTrigger>
+                  <SelectContent className="glass-panel border-stone-700 text-stone-100">
+                    {VARIETIES.map((v) => <SelectItem key={v} value={v} className="focus:bg-emerald-900/40">{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-
-              <div className="pt-2 space-y-4">
-                <NumberField label="Distanza tra file (interfilare)" value={cfg.interRow} onChange={(v) => onUpdateConfig({ interRow: v })} min={2.5} max={7.0} step={0.1} unit="m" testId="input-inter-row" hint="Range consigliato 3.5 - 4.5 m per superintensivo" />
-                <NumberField label="Distanza tra piante sulla fila" value={cfg.interPlant} onChange={(v) => onUpdateConfig({ interPlant: v })} min={0.8} max={3.0} step={0.1} unit="m" testId="input-inter-plant" />
-                <NumberField label="Capezzagna di testata (lungo fila)" value={cfg.headland} onChange={(v) => onUpdateConfig({ headland: v })} min={4} max={25} step={0.5} unit="m" testId="input-headland" />
-                <NumberField label="Margine laterale (parallelo alle file)" value={cfg.sideMargin} onChange={(v) => onUpdateConfig({ sideMargin: v })} min={1} max={10} step={0.5} unit="m" testId="input-side-margin" />
-                <NumberField label="Lunghezza minima filare accettabile" value={cfg.minSegment} onChange={(v) => onUpdateConfig({ minSegment: v })} min={5} max={80} step={1} unit="m" testId="input-min-segment" hint="Filari più corti verranno segnalati in arancione" />
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">Varietà</Label>
-                  <Select value={cfg.variety} onValueChange={(v) => onUpdateConfig({ variety: v })}>
-                    <SelectTrigger className="bg-stone-900/70 border-stone-700 h-9 text-sm" data-testid="select-variety"><SelectValue /></SelectTrigger>
-                    <SelectContent className="glass-panel border-stone-700 text-stone-100">
-                      {VARIETIES.map((v) => <SelectItem key={v} value={v} className="focus:bg-emerald-900/40">{v}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
               <div className="pt-2 border-t border-stone-800 space-y-2">
-                <div className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">Visualizzazione</div>
+                <div className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">Visualizzazione mappa</div>
                 <div className="flex items-center justify-between text-xs">
                   <span>Mostra filari</span>
                   <Switch checked={showRows} onCheckedChange={setShowRows} data-testid="switch-show-rows" />
@@ -150,53 +145,61 @@ export default function SidePanel({
               </div>
             </TabsContent>
 
+            {/* ORIENTATION */}
+            <TabsContent value="orientation" className="mt-0">
+              <OrientationPanel field={field} plan={plan} onUpdateAzimuth={onUpdateAzimuth} />
+            </TabsContent>
+
             {/* OSTACOLI */}
             <TabsContent value="obstacles" className="space-y-3 mt-0">
               <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-3 text-xs text-emerald-200/80">
-                Attiva "Ostacolo" nella barra strumenti e tocca la mappa per posizionare. I filari verranno interrotti dalla fascia di rispetto.
+                Tocca "Ostacolo" nella barra strumenti in basso: seleziona il tipo e poi tocca la mappa per posizionarlo.
               </div>
               {(field.obstacles || []).length === 0 && <div className="text-center text-stone-500 text-sm py-10">Nessun ostacolo tracciato.</div>}
-              {(field.obstacles || []).map((obs) => {
-                const typeInfo = OBSTACLE_TYPES.find((t) => t.id === obs.type);
-                return (
-                  <div key={obs.id} className="rounded-xl border border-red-900/50 bg-red-950/20 p-3 space-y-2" data-testid={`obstacle-item-${obs.id}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert className="w-4 h-4 text-red-400" />
-                        <Select value={obs.type} onValueChange={(v) => {
-                          const info = OBSTACLE_TYPES.find((t) => t.id === v);
-                          onUpdateObstacle(obs.id, { type: v, bufferAlong: info?.along || obs.bufferAlong, bufferSide: info?.side || obs.bufferSide });
-                        }}>
-                          <SelectTrigger className="bg-stone-900 border-stone-700 h-7 text-xs w-44"><SelectValue /></SelectTrigger>
-                          <SelectContent className="glass-panel border-stone-700 text-stone-100">
-                            {OBSTACLE_TYPES.map((t) => <SelectItem key={t.id} value={t.id} className="focus:bg-emerald-900/40 text-xs">{t.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-950/40" onClick={() => onRemoveObstacle(obs.id)} data-testid={`btn-remove-obstacle-${obs.id}`}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+              {(field.obstacles || []).map((obs) => (
+                <div key={obs.id} className="rounded-xl border border-red-900/50 bg-red-950/20 p-3 space-y-2" data-testid={`obstacle-item-${obs.id}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-red-400" />
+                      <Select value={obs.type} onValueChange={(v) => {
+                        const info = OBSTACLE_TYPES.find((t) => t.id === v);
+                        onUpdateObstacle(obs.id, { type: v, bufferAlong: info?.along || obs.bufferAlong, bufferSide: info?.side || obs.bufferSide });
+                      }}>
+                        <SelectTrigger className="bg-stone-900 border-stone-700 h-7 text-xs w-44"><SelectValue /></SelectTrigger>
+                        <SelectContent className="glass-panel border-stone-700 text-stone-100">
+                          {OBSTACLE_TYPES.map((t) => <SelectItem key={t.id} value={t.id} className="focus:bg-emerald-900/40 text-xs">{t.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-[10px] uppercase tracking-widest text-stone-500">Buffer lungo fila</Label>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Input type="number" value={obs.bufferAlong} step={0.5} min={0} onChange={(e) => onUpdateObstacle(obs.id, { bufferAlong: parseFloat(e.target.value) || 0 })} className="h-7 bg-stone-900 border-stone-700 text-xs font-mono text-emerald-300 text-right" data-testid={`input-obs-along-${obs.id}`} />
-                          <span className="text-[10px] text-stone-500 font-mono">m</span>
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-[10px] uppercase tracking-widest text-stone-500">Buffer laterale</Label>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Input type="number" value={obs.bufferSide} step={0.5} min={0} onChange={(e) => onUpdateObstacle(obs.id, { bufferSide: parseFloat(e.target.value) || 0 })} className="h-7 bg-stone-900 border-stone-700 text-xs font-mono text-emerald-300 text-right" data-testid={`input-obs-side-${obs.id}`} />
-                          <span className="text-[10px] text-stone-500 font-mono">m</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-stone-500 font-mono">{obs.geomType === "point" ? "Punto" : `Poligono ${obs.points.length} vert.`}</div>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-950/40" onClick={() => onRemoveObstacle(obs.id)} data-testid={`btn-remove-obstacle-${obs.id}`}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
-                );
-              })}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-widest text-stone-500">Buffer lungo fila</Label>
+                      <div className="mt-1">
+                        <Slider value={[obs.bufferAlong]} min={0} max={15} step={0.5} onValueChange={(v) => onUpdateObstacle(obs.id, { bufferAlong: v[0] })} />
+                        <div className="flex items-center gap-1 mt-1">
+                          <Input type="number" value={obs.bufferAlong} step={0.5} min={0} onChange={(e) => onUpdateObstacle(obs.id, { bufferAlong: parseFloat(e.target.value) || 0 })} className="h-7 bg-stone-900 border-stone-700 text-xs font-mono text-emerald-300 text-right flex-1" data-testid={`input-obs-along-${obs.id}`} />
+                          <span className="text-[10px] text-stone-500 font-mono">m</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-widest text-stone-500">Buffer laterale</Label>
+                      <div className="mt-1">
+                        <Slider value={[obs.bufferSide]} min={0} max={15} step={0.5} onValueChange={(v) => onUpdateObstacle(obs.id, { bufferSide: v[0] })} />
+                        <div className="flex items-center gap-1 mt-1">
+                          <Input type="number" value={obs.bufferSide} step={0.5} min={0} onChange={(e) => onUpdateObstacle(obs.id, { bufferSide: parseFloat(e.target.value) || 0 })} className="h-7 bg-stone-900 border-stone-700 text-xs font-mono text-emerald-300 text-right flex-1" data-testid={`input-obs-side-${obs.id}`} />
+                          <span className="text-[10px] text-stone-500 font-mono">m</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-stone-500 font-mono">{obs.geomType === "point" ? "Punto" : `Poligono ${obs.points.length} vert.`}</div>
+                </div>
+              ))}
             </TabsContent>
 
             {/* IRRIGATION */}
@@ -260,7 +263,7 @@ export default function SidePanel({
                       <span>Settore</span><span>Filari</span><span>Metri</span><span>m³/h</span>
                     </div>
                     {irrigationResult.sectors.map((s) => (
-                      <div key={s.index} className="grid grid-cols-4 text-xs font-mono px-3 py-1.5 border-b border-stone-800/60 last:border-b-0" data-testid={`sector-row-${s.index}`}>
+                      <div key={`sec-${s.index}`} className="grid grid-cols-4 text-xs font-mono px-3 py-1.5 border-b border-stone-800/60 last:border-b-0" data-testid={`sector-row-${s.index}`}>
                         <span className="text-emerald-300 font-bold">#{s.index + 1}</span>
                         <span>{s.rows}</span>
                         <span>{s.meters.toFixed(0)}</span>
@@ -282,7 +285,7 @@ export default function SidePanel({
                     <MetricCard label="Superficie lorda" value={(plan.areaGross / 10000).toFixed(3)} unit="ha" />
                     <MetricCard label="Superficie impiantabile" value={(plan.areaPlantable / 10000).toFixed(3)} unit="ha" />
                     <MetricCard label="Perimetro" value={plan.perimeter.toFixed(0)} unit="m" />
-                    <MetricCard label="Filari totali" value={plan.rows.length} unit={`${plan.shortRowCount} corti`} />
+                    <MetricCard label="Filari totali" value={plan.rows.length} unit={`${plan.shortRowCount} corti`} accent={plan.shortRowCount > 0 ? "text-amber-400" : "text-emerald-300"} />
                     <MetricCard label="Metri lineari filari" value={plan.totalRowMeters.toFixed(0)} unit="m" />
                     <MetricCard label="Piante totali" value={plan.totalPlants.toLocaleString("it-IT")} unit="piante" />
                     <MetricCard label="Densità reale" value={plan.density.toFixed(0)} unit="piante/ha" />
@@ -291,11 +294,27 @@ export default function SidePanel({
                     <MetricCard label="Min / Max filare" value={`${plan.minRowLength.toFixed(0)} / ${plan.maxRowLength.toFixed(0)}`} unit="m" />
                   </div>
 
-                  <div className="pt-2 border-t border-stone-800 space-y-2">
-                    <div className="text-[11px] uppercase tracking-widest text-emerald-300 font-semibold flex items-center gap-2"><Download className="w-3.5 h-3.5" />Esportazioni</div>
+                  {materials && (
+                    <div className="pt-3 border-t border-stone-800 space-y-2">
+                      <div className="text-[11px] uppercase tracking-widest text-emerald-300 font-semibold flex items-center gap-2"><Package className="w-3.5 h-3.5" />Stima Materiali</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <MetricCard label="Pali testata" value={materials.endPosts} unit="unità" />
+                        <MetricCard label="Pali intermedi" value={materials.intermediatePosts} unit="ogni 6m" />
+                        <MetricCard label="Tutori" value={materials.tutors.toLocaleString("it-IT")} unit="uno per pianta" />
+                        <MetricCard label="Filo zincato" value={materials.wireMeters.toFixed(0)} unit="m (2 fili/fila)" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-stone-800 space-y-2">
+                    <div className="text-[11px] uppercase tracking-widest text-emerald-300 font-semibold flex items-center gap-2"><Upload className="w-3.5 h-3.5" />Importa / Esporta</div>
+                    <input ref={fileInputRef} type="file" accept=".geojson,.json" onChange={handleImportChange} className="hidden" data-testid="input-import-file" />
                     <div className="grid grid-cols-2 gap-2">
+                      <Button variant="outline" size="sm" onClick={handleImportClick} className="bg-stone-900/60 border-emerald-700/50 hover:bg-emerald-950/40 text-emerald-300 gap-1 text-xs h-9" data-testid="btn-import-geojson">
+                        <Upload className="w-3.5 h-3.5" /> Importa GeoJSON
+                      </Button>
                       <Button variant="outline" size="sm" onClick={onExportGeoJSON} className="bg-stone-900/60 border-stone-700 hover:bg-emerald-950/40 text-stone-200 gap-1 text-xs h-9" data-testid="btn-export-geojson">
-                        <FileJson className="w-3.5 h-3.5" /> GeoJSON
+                        <FileJson className="w-3.5 h-3.5" /> Esporta GeoJSON
                       </Button>
                       <Button variant="outline" size="sm" onClick={onExportRowsCSV} className="bg-stone-900/60 border-stone-700 hover:bg-emerald-950/40 text-stone-200 gap-1 text-xs h-9" data-testid="btn-export-rows-csv">
                         <Table className="w-3.5 h-3.5" /> CSV Filari
@@ -303,8 +322,8 @@ export default function SidePanel({
                       <Button variant="outline" size="sm" onClick={onExportPlantsCSV} className="bg-stone-900/60 border-stone-700 hover:bg-emerald-950/40 text-stone-200 gap-1 text-xs h-9" data-testid="btn-export-plants-csv">
                         <Table className="w-3.5 h-3.5" /> CSV Piante
                       </Button>
-                      <Button variant="default" size="sm" onClick={onExportPDF} className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1 text-xs h-9" data-testid="btn-export-pdf">
-                        <FileText className="w-3.5 h-3.5" /> Report PDF
+                      <Button variant="default" size="sm" onClick={onExportPDF} className="col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white gap-1 text-xs h-9" data-testid="btn-export-pdf">
+                        <FileText className="w-3.5 h-3.5" /> Report Tecnico PDF
                       </Button>
                     </div>
                   </div>

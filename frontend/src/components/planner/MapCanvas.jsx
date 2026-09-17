@@ -1,18 +1,14 @@
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { TILE_LAYERS } from "@/lib/defaults";
 
-/**
- * MapCanvas
- * - Stable Leaflet map inside a ref-controlled div (no React DOM manipulation).
- * - Renders: field vertices, field polygon, obstacles + buffers, rows, plants, network elements.
- * - Emits map events for tool-based interaction.
- */
+const PLANTS_MIN_ZOOM = 17; // auto-hide plants below this zoom
+
 export default function MapCanvas({
   tileLayerId,
   center,
   zoom,
-  toolMode, // 'pan' | 'draw-field' | 'add-obstacle-point' | 'add-obstacle-poly' | 'add-network' | 'place-value'
+  toolMode,
   activeField,
   allFields,
   plan,
@@ -21,25 +17,34 @@ export default function MapCanvas({
   showBuffers,
   onMapClick,
   onVertexClick,
-  onEdgeClick,
+  onVertexDragEnd,
+  onEdgeMidpointClick,
   onObstacleClick,
   onMapReady,
-  networkKind, // active network element kind
+  networkKind,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const tileLayerRef = useRef(null);
+  const [currentZoom, setCurrentZoom] = useState(zoom || 16);
   const layersRef = useRef({
     otherFields: L.layerGroup(),
     activeField: L.layerGroup(),
     vertices: L.layerGroup(),
+    midpoints: L.layerGroup(),
     obstacles: L.layerGroup(),
     buffers: L.layerGroup(),
     rows: L.layerGroup(),
     plants: L.layerGroup(),
     network: L.layerGroup(),
-    plantable: L.layerGroup(),
   });
+
+  const onMapClickRef = useRef(onMapClick);
+  const toolModeRef = useRef(toolMode);
+  const networkKindRef = useRef(networkKind);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
+  useEffect(() => { toolModeRef.current = toolMode; }, [toolMode]);
+  useEffect(() => { networkKindRef.current = networkKind; }, [networkKind]);
 
   // Initialize map once
   useEffect(() => {
@@ -49,17 +54,25 @@ export default function MapCanvas({
       zoom: zoom || 16,
       zoomControl: true,
       attributionControl: true,
-      preferCanvas: true,
       worldCopyJump: true,
-      tap: true,
+      tapTolerance: 20,
     });
     mapRef.current = map;
-    // Add all layer groups
     Object.values(layersRef.current).forEach((lg) => lg.addTo(map));
+
+    const handleMapEvent = (e) => {
+      const cb = onMapClickRef.current;
+      if (cb) cb(e.latlng, toolModeRef.current, networkKindRef.current);
+    };
+    map.on("click", handleMapEvent);
+    const handleZoom = () => setCurrentZoom(map.getZoom());
+    map.on("zoomend", handleZoom);
+
     if (onMapReady) onMapReady(map);
-    // Fix leaflet size after mount
     setTimeout(() => map.invalidateSize(), 100);
     return () => {
+      map.off("click", handleMapEvent);
+      map.off("zoomend", handleZoom);
       map.remove();
       mapRef.current = null;
     };
@@ -80,7 +93,6 @@ export default function MapCanvas({
     tileLayerRef.current.bringToBack();
   }, [tileLayerId]);
 
-  // Center and zoom control
   const centerKey = center ? `${center[0]},${center[1]}` : null;
   useEffect(() => {
     const map = mapRef.current;
@@ -88,34 +100,13 @@ export default function MapCanvas({
     map.setView(center, zoom, { animate: true });
   }, [centerKey, zoom]);
 
-  // Click handler
-  const onMapClickRef = useRef(onMapClick);
-  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
-  const toolModeRef = useRef(toolMode);
-  useEffect(() => { toolModeRef.current = toolMode; }, [toolMode]);
-  const networkKindRef = useRef(networkKind);
-  useEffect(() => { networkKindRef.current = networkKind; }, [networkKind]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const handler = (e) => {
-      if (onMapClickRef.current) {
-        onMapClickRef.current(e.latlng, toolModeRef.current, networkKindRef.current);
-      }
-    };
-    map.on("click", handler);
-    return () => { map.off("click", handler); };
-  }, []);
-
-  // Cursor style per tool
   useEffect(() => {
     if (!containerRef.current) return;
-    const drawing = ["draw-field", "add-obstacle-point", "add-obstacle-poly", "add-network"].includes(toolMode);
+    const drawing = ["draw-field", "add-obstacle-point"].includes(toolMode);
     containerRef.current.style.cursor = drawing ? "crosshair" : "";
   }, [toolMode]);
 
-  // Render all other fields (context)
+  // Other fields
   useEffect(() => {
     const lg = layersRef.current.otherFields;
     lg.clearLayers();
@@ -136,7 +127,7 @@ export default function MapCanvas({
     }
   }, [allFields, activeField?.id]);
 
-  // Render active field polygon
+  // Active field polygon/polyline
   useEffect(() => {
     const lg = layersRef.current.activeField;
     lg.clearLayers();
@@ -164,39 +155,74 @@ export default function MapCanvas({
     }
   }, [activeField?.vertices, activeField?.closed]);
 
-  // Render vertex markers
+  // Vertex markers
   useEffect(() => {
     const lg = layersRef.current.vertices;
     lg.clearLayers();
     if (!activeField || !activeField.vertices) return;
-    const smallStyle = activeField.closed;
-    const size = smallStyle ? 12 : 18;
+    const drawing = !activeField.closed;
+    const editing = toolMode === "edit-perimeter" && activeField.closed;
+    const showLabels = drawing;
+    const draggable = drawing || editing;
+
     activeField.vertices.forEach((v, idx) => {
-      const iconClass = smallStyle ? "oliveto-vertex-small" : "oliveto-vertex";
-      const html = `<div class="${iconClass}" style="width:${size}px;height:${size}px;"></div>`;
-      const icon = L.divIcon({
-        className: "vertex-icon-wrapper",
-        html,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
-      });
-      const marker = L.marker([v.lat, v.lng], { icon, keyboard: false });
+      let size, iconClass, inner;
+      if (showLabels) {
+        size = 26;
+        iconClass = "oliveto-vertex";
+        inner = `<div class="${iconClass}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;color:#052e16;font-weight:800;font-size:12px;font-family:JetBrains Mono,monospace;">${idx + 1}</div>`;
+      } else if (editing) {
+        size = 18;
+        iconClass = "oliveto-vertex";
+        inner = `<div class="${iconClass}" style="width:${size}px;height:${size}px;"></div>`;
+      } else {
+        size = 12;
+        iconClass = "oliveto-vertex-small";
+        inner = `<div class="${iconClass}" style="width:${size}px;height:${size}px;"></div>`;
+      }
+      const icon = L.divIcon({ className: "vertex-icon-wrapper", html: inner, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+      const marker = L.marker([v.lat, v.lng], { icon, keyboard: false, draggable });
       marker.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         if (onVertexClick) onVertexClick(v, idx);
       });
+      if (draggable) {
+        marker.on("dragend", (e) => {
+          const { lat, lng } = e.target.getLatLng();
+          if (onVertexDragEnd) onVertexDragEnd(v.id, lat, lng);
+        });
+      }
       marker.addTo(lg);
     });
-  }, [activeField?.vertices, activeField?.closed, onVertexClick]);
+  }, [activeField?.vertices, activeField?.closed, toolMode, onVertexClick, onVertexDragEnd]);
 
-  // Render obstacles + buffers
+  // Midpoint markers (only during edit-perimeter)
+  useEffect(() => {
+    const lg = layersRef.current.midpoints;
+    lg.clearLayers();
+    if (toolMode !== "edit-perimeter" || !activeField?.closed || !activeField.vertices || activeField.vertices.length < 3) return;
+    activeField.vertices.forEach((v, i) => {
+      const next = activeField.vertices[(i + 1) % activeField.vertices.length];
+      const midLat = (v.lat + next.lat) / 2;
+      const midLng = (v.lng + next.lng) / 2;
+      const html = `<div style="background:rgba(56,224,122,0.85);border:1.5px solid #052e16;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;color:#052e16;font-weight:900;font-size:13px;line-height:1;box-shadow:0 2px 6px rgba(0,0,0,.5);">+</div>`;
+      const icon = L.divIcon({ className: "midpoint-icon", html, iconSize: [18, 18], iconAnchor: [9, 9] });
+      const marker = L.marker([midLat, midLng], { icon, keyboard: false, opacity: 0.9 });
+      marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (onEdgeMidpointClick) onEdgeMidpointClick(i, midLat, midLng);
+      });
+      marker.addTo(lg);
+    });
+  }, [activeField?.vertices, activeField?.closed, toolMode, onEdgeMidpointClick]);
+
+  // Obstacles + buffers
   useEffect(() => {
     const oLg = layersRef.current.obstacles;
     const bLg = layersRef.current.buffers;
     oLg.clearLayers();
     bLg.clearLayers();
     if (!activeField) return;
-    // Buffers from plan
     if (showBuffers && plan?.obstacleBuffers) {
       for (const buf of plan.obstacleBuffers) {
         const coords = buf.geometry.coordinates[0].map((c) => [c[1], c[0]]);
@@ -217,67 +243,56 @@ export default function MapCanvas({
         const html = `<div style="background:#ef4444;border:2px solid #fff;border-radius:50%;width:16px;height:16px;box-shadow:0 0 0 2px rgba(239,68,68,.35),0 2px 8px rgba(0,0,0,.5);"></div>`;
         const icon = L.divIcon({ className: "obstacle-icon", html, iconSize: [16, 16], iconAnchor: [8, 8] });
         const marker = L.marker([p.lat, p.lng], { icon });
-        marker.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          if (onObstacleClick) onObstacleClick(obs);
-        });
+        marker.on("click", (e) => { L.DomEvent.stopPropagation(e); if (onObstacleClick) onObstacleClick(obs); });
         marker.addTo(oLg);
       } else if (obs.points.length >= 3) {
         const coords = obs.points.map((p) => [p.lat, p.lng]);
-        const poly = L.polygon(coords, {
-          color: "#ef4444",
-          weight: 2,
-          opacity: 0.9,
-          fillColor: "#dc2626",
-          fillOpacity: 0.28,
-        });
-        poly.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          if (onObstacleClick) onObstacleClick(obs);
-        });
+        const poly = L.polygon(coords, { color: "#ef4444", weight: 2, opacity: 0.9, fillColor: "#dc2626", fillOpacity: 0.28 });
+        poly.on("click", (e) => { L.DomEvent.stopPropagation(e); if (onObstacleClick) onObstacleClick(obs); });
         poly.addTo(oLg);
       }
     }
   }, [activeField?.obstacles, plan?.obstacleBuffers, showBuffers, onObstacleClick]);
 
-  // Render rows and plants
+  // Rows
   useEffect(() => {
     const rLg = layersRef.current.rows;
-    const pLg = layersRef.current.plants;
     rLg.clearLayers();
-    pLg.clearLayers();
-    if (!plan) return;
-    if (showRows) {
-      for (const row of plan.rows) {
-        const color = row.isShort ? "#f59e0b" : "#e76f51";
-        L.polyline([[row.start.lat, row.start.lng], [row.end.lat, row.end.lng]], {
-          color,
-          weight: row.isShort ? 1.5 : 2,
-          opacity: 0.9,
-          interactive: false,
-        }).addTo(rLg);
-      }
+    if (!plan || !showRows) return;
+    for (const row of plan.rows) {
+      const color = row.isShort ? "#f59e0b" : "#e76f51";
+      L.polyline([[row.start.lat, row.start.lng], [row.end.lat, row.end.lng]], {
+        color,
+        weight: row.isShort ? 1.5 : 2,
+        opacity: 0.9,
+        dashArray: row.isShort ? "6,4" : null,
+        interactive: false,
+      }).addTo(rLg);
     }
-    if (showPlants) {
-      const map = mapRef.current;
-      const z = map ? map.getZoom() : 16;
-      const size = z >= 18 ? 6 : z >= 16 ? 4 : 3;
-      for (const row of plan.rows) {
-        for (const p of row.plants) {
-          L.circleMarker([p.lat, p.lng], {
-            radius: size / 2,
-            color: "#052e16",
-            weight: 1,
-            fillColor: "#a7f3d0",
-            fillOpacity: 1,
-            interactive: false,
-          }).addTo(pLg);
-        }
-      }
-    }
-  }, [plan, showPlants, showRows]);
+  }, [plan, showRows]);
 
-  // Render network elements
+  // Plants (auto-hide below min zoom)
+  useEffect(() => {
+    const pLg = layersRef.current.plants;
+    pLg.clearLayers();
+    if (!plan || !showPlants) return;
+    if (currentZoom < PLANTS_MIN_ZOOM) return;
+    const size = currentZoom >= 19 ? 4 : currentZoom >= 18 ? 3 : 2;
+    for (const row of plan.rows) {
+      for (const p of row.plants) {
+        L.circleMarker([p.lat, p.lng], {
+          radius: size,
+          color: "#052e16",
+          weight: 1,
+          fillColor: "#a7f3d0",
+          fillOpacity: 1,
+          interactive: false,
+        }).addTo(pLg);
+      }
+    }
+  }, [plan, showPlants, currentZoom]);
+
+  // Network
   useEffect(() => {
     const lg = layersRef.current.network;
     lg.clearLayers();
@@ -292,3 +307,5 @@ export default function MapCanvas({
 
   return <div ref={containerRef} className="absolute inset-0 z-0" data-testid="leaflet-map" />;
 }
+
+export { PLANTS_MIN_ZOOM };
