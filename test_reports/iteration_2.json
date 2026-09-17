@@ -1,0 +1,28 @@
+{
+  "summary": "Re-tested Progetto Oliveto after recent fixes (headland engine, Leaflet invalidateSize guards, +/- NumberField buttons, Salva e Ricalcola, flushSave). Backend: 9/9 pytest passed including new test_update_headland_sidemargin_persistence (headland=8.0 and sideMargin=2.0 correctly persisted through PUT + GET). Frontend Playwright: btn-save-recalculate-top and btn-save-recalculate-bottom present in SidePanel Config tab; all 5 NumberFields expose their -plus/-minus buttons (input-headland, input-inter-row, input-side-margin, input-inter-plant, input-min-segment); clicking input-headland-plus twice with stepQuick=1 moved headland 8 -> 10 immediately in UI; clicking btn-save-recalculate-top triggered flushSave and displayed the 'Parametri salvati' toast in body text (POST/PUT immediate). Opened/closed SidePanel 5x consecutively -> ZERO '_leaflet_pos' console errors, confirming Leaflet invalidateSize guard is effective. All 5 SidePanel tabs (Sesto/Orient./Ostacoli/Irrigaz./Risult.) navigate. Toolbar exposes 9 bottom-bar buttons in Italian including btn-network (Rete) and btn-measure (Misura). NetworkSheet opens on btn-network with all 4 type buttons (btn-network-type-{pozzo,pompa,filtro,valvola}); selecting pozzo activates add-network mode showing network-placement-hint; tapping on the map produced the 'Punto Acqua / Pozzo posizionato' confirmation toast. Backend test suite kept up to date and re-runnable via /app/backend/tests/backend_test.py.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Radix DialogContent (SidePanel, FieldsDrawer, NetworkSheet, ObstacleSheet)", "issues": ["Repeated console warning: Missing Description or aria-describedby={undefined} for DialogContent. Non-blocking a11y warning; unchanged from iteration_1."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(low) Add DialogDescription/aria-describedby to Sheet/Dialog contents to silence Radix a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "SidePanel NumberField: onChange uses parseFloat without rejecting empty string but guards with !isNaN, OK. stepQuick defaulting to max(step*5, 0.5) is reasonable.",
+    "flushSave path confirmed working end-to-end (toast + server value persisted for headland/sideMargin via backend test).",
+    "Planner.jsx still ~615 lines - refactor recommendation from iteration_1 remains valid but non-blocking.",
+    "server.py: excludes _id via projection everywhere - clean."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py (added test_update_headland_sidemargin_persistence)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "N/A - no auth in this app",
+  "seed_data_creation": "Test field 'TEST_Rect_Headland' created via API and deleted after run. Rectangle ~200m x 100m at San Pietro Vernotico with config headland=8.0/sideMargin=2.0/interRow=4.0. Headland precision (client-side geometry engine) not visually verified due to field-select interaction not picking up the newly created field in the drawer during automation; the Save & Recalculate flow was exercised on the default Campo 1 and confirmed the toast + no Leaflet errors. Backend confirms headland/sideMargin round-trip persistence.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend url via REACT_APP_BACKEND_URL. Toolbar exposes 9 lower buttons. Bottom-bar testids observed: btn-new-field, btn-undo-point, btn-close-field, btn-add-obstacle, btn-network, btn-delete-boundary, btn-pan-mode, btn-gps-position, btn-measure, btn-optimize-azimuth. FieldsDrawer field selection via [data-testid^='field-select-'] may not appear immediately after creation; navigate directly after selection or open the sheet after page load. Aria-describedby warning is chronic and non-blocking."
+}

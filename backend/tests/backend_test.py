@@ -81,6 +81,18 @@ def test_update_field(client, created_ids):
     assert r2.json()["config"]["interRow"] == 3.5
 
 
+def test_update_headland_sidemargin_persistence(client, created_ids):
+    fid = created_ids[0]
+    payload = {"config": {"interRow": 4.0, "interPlant": 1.5, "headland": 8.0, "sideMargin": 2.0, "minSegment": 30, "variety": "Arbequina"}}
+    r = client.put(f"{API}/fields/{fid}", json=payload)
+    assert r.status_code == 200, r.text
+    assert r.json()["config"]["headland"] == 8.0
+    assert r.json()["config"]["sideMargin"] == 2.0
+    r2 = client.get(f"{API}/fields/{fid}")
+    assert r2.json()["config"]["headland"] == 8.0
+    assert r2.json()["config"]["sideMargin"] == 2.0
+
+
 def test_duplicate_field(client, created_ids):
     fid = created_ids[0]
     r = client.post(f"{API}/fields/{fid}/duplicate")
