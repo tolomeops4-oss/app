@@ -29,6 +29,7 @@ export default function MapCanvas({
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const tileLayerRef = useRef(null);
+  const invalidateRafRef = useRef(null);
   const [currentZoom, setCurrentZoom] = useState(zoom || 16);
   const layersRef = useRef({
     otherFields: L.layerGroup(),
@@ -72,12 +73,34 @@ export default function MapCanvas({
     const handleZoom = () => setCurrentZoom(map.getZoom());
     map.on("zoomend", handleZoom);
 
+    // Safe invalidate size: only if map still has its DOM pane
+    const safeInvalidate = () => {
+      try {
+        if (mapRef.current && mapRef.current._mapPane && containerRef.current) {
+          mapRef.current.invalidateSize();
+        }
+      } catch (e) { /* ignore transient DOM detachment */ }
+    };
+    const invalidateTimer = setTimeout(safeInvalidate, 100);
+
+    // ResizeObserver for container size changes (mobile keyboard, panel open/close)
+    let ro = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => {
+        if (invalidateRafRef.current) cancelAnimationFrame(invalidateRafRef.current);
+        invalidateRafRef.current = requestAnimationFrame(safeInvalidate);
+      });
+      ro.observe(containerRef.current);
+    }
+
     if (onMapReady) onMapReady(map);
-    setTimeout(() => map.invalidateSize(), 100);
     return () => {
-      map.off("click", handleMapEvent);
-      map.off("zoomend", handleZoom);
-      map.remove();
+      clearTimeout(invalidateTimer);
+      if (invalidateRafRef.current) cancelAnimationFrame(invalidateRafRef.current);
+      if (ro) { try { ro.disconnect(); } catch (e) {} }
+      try { map.off("click", handleMapEvent); } catch (e) {}
+      try { map.off("zoomend", handleZoom); } catch (e) {}
+      try { map.remove(); } catch (e) {}
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

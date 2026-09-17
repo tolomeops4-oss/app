@@ -107,6 +107,25 @@ export default function Planner() {
     }, 600);
   }, []);
 
+  const flushSave = useCallback(async () => {
+    if (!activeFieldId) return;
+    if (saveTimersRef.current[activeFieldId]) {
+      clearTimeout(saveTimersRef.current[activeFieldId]);
+      saveTimersRef.current[activeFieldId] = null;
+    }
+    const f = fieldsRef.current.find((x) => x.id === activeFieldId);
+    if (!f) return;
+    try {
+      const payload = {
+        name: f.name, vertices: f.vertices, closed: f.closed, obstacles: f.obstacles,
+        config: f.config, irrigation: f.irrigation, networkElements: f.networkElements,
+        azimuth: f.azimuth, tileLayer: f.tileLayer,
+      };
+      await api.updateField(activeFieldId, payload);
+      toast.success("Parametri salvati e impianto ricalcolato");
+    } catch (e) { toast.error("Errore salvataggio"); }
+  }, [activeFieldId]);
+
   // ============ Map click handler ============
   const handleMapClick = useCallback((latlng, mode) => {
     if (mode === "measure") {
@@ -666,6 +685,7 @@ export default function Planner() {
         onRemoveObstacle={removeObstacle}
         onUpdateObstacle={updateObstacle}
         onRemoveNetworkElement={removeNetworkElement}
+        onFlushSave={flushSave}
         onExportGeoJSON={() => exportGeoJSON(activeField, plan)}
         onExportRowsCSV={() => exportRowsCSV(activeField, plan)}
         onExportPlantsCSV={() => exportPlantsCSV(activeField, plan)}

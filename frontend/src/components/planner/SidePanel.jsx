@@ -7,17 +7,30 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Settings2, Droplets, BarChart3, ShieldAlert, Download, FileJson, FileText, Table, Trash2, Compass, Upload, Package } from "lucide-react";
+import { Settings2, Droplets, BarChart3, ShieldAlert, Download, FileJson, FileText, Table, Trash2, Compass, Upload, Package, Plus, Minus, Save, X } from "lucide-react";
 import OrientationPanel from "./OrientationPanel";
 import { VARIETIES, OBSTACLE_TYPES } from "@/lib/defaults";
 import { estimateMaterials } from "@/lib/exportUtils";
 
-function NumberField({ label, value, onChange, min, max, step, unit, testId, hint }) {
+function NumberField({ label, value, onChange, min, max, step, unit, testId, hint, stepQuick }) {
+  const q = stepQuick ?? Math.max(step * 5, 0.5);
+  const nudge = (delta) => {
+    const v = Math.max(min, Math.min(max, parseFloat((value + delta).toFixed(3))));
+    onChange(v);
+  };
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <Label className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">{label}</Label>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => nudge(-q)}
+            className="h-7 w-7 rounded-md bg-stone-900 border border-stone-700 hover:bg-emerald-950/40 hover:border-emerald-700/60 text-stone-200 flex items-center justify-center text-xs font-bold"
+            data-testid={`${testId}-minus`}
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
           <Input
             type="number"
             value={value}
@@ -28,9 +41,17 @@ function NumberField({ label, value, onChange, min, max, step, unit, testId, hin
               const v = parseFloat(e.target.value);
               if (!isNaN(v)) onChange(v);
             }}
-            className="w-20 h-7 text-xs font-mono text-emerald-300 bg-stone-900/70 border-stone-700 text-right"
+            className="w-16 h-7 text-xs font-mono text-emerald-300 bg-stone-900/70 border-stone-700 text-right"
             data-testid={testId}
           />
+          <button
+            type="button"
+            onClick={() => nudge(q)}
+            className="h-7 w-7 rounded-md bg-stone-900 border border-stone-700 hover:bg-emerald-950/40 hover:border-emerald-700/60 text-stone-200 flex items-center justify-center text-xs font-bold"
+            data-testid={`${testId}-plus`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
           <span className="text-[10px] text-stone-500 font-mono w-6">{unit}</span>
         </div>
       </div>
@@ -55,6 +76,7 @@ export default function SidePanel({
   onUpdateConfig, onUpdateIrrigation, onUpdateAzimuth,
   onRemoveObstacle, onUpdateObstacle,
   onRemoveNetworkElement,
+  onFlushSave,
   onExportGeoJSON, onExportRowsCSV, onExportPlantsCSV, onExportPDF, onImportGeoJSON,
   showPlants, setShowPlants, showRows, setShowRows, showBuffers, setShowBuffers,
   initialTab,
@@ -115,11 +137,18 @@ export default function SidePanel({
           <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-4">
             {/* CONFIG */}
             <TabsContent value="config" className="space-y-4 mt-0">
-              <NumberField label="Distanza tra file (interfilare)" value={cfg.interRow} onChange={(v) => onUpdateConfig({ interRow: v })} min={2.5} max={7.0} step={0.1} unit="m" testId="input-inter-row" hint="Range consigliato 3.5 - 4.5 m per superintensivo" />
-              <NumberField label="Distanza tra piante sulla fila" value={cfg.interPlant} onChange={(v) => onUpdateConfig({ interPlant: v })} min={0.8} max={3.0} step={0.1} unit="m" testId="input-inter-plant" />
-              <NumberField label="Capezzagna di testata (lungo fila)" value={cfg.headland} onChange={(v) => onUpdateConfig({ headland: v })} min={4} max={25} step={0.5} unit="m" testId="input-headland" />
-              <NumberField label="Margine laterale (parallelo alle file)" value={cfg.sideMargin} onChange={(v) => onUpdateConfig({ sideMargin: v })} min={1} max={10} step={0.5} unit="m" testId="input-side-margin" />
-              <NumberField label="Lunghezza minima filare accettabile" value={cfg.minSegment} onChange={(v) => onUpdateConfig({ minSegment: v })} min={5} max={80} step={1} unit="m" testId="input-min-segment" hint="Filari più corti verranno segnalati in arancione" />
+              <Button
+                onClick={() => { if (onFlushSave) onFlushSave(); }}
+                className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-2 shadow-lg shadow-emerald-500/20"
+                data-testid="btn-save-recalculate-top"
+              >
+                <Save className="w-4 h-4" /> Salva e Ricalcola Impianto
+              </Button>
+              <NumberField label="Distanza tra file (interfilare)" value={cfg.interRow} onChange={(v) => onUpdateConfig({ interRow: v })} min={2.5} max={7.0} step={0.1} stepQuick={0.5} unit="m" testId="input-inter-row" hint="Range consigliato 3.5 - 4.5 m per superintensivo" />
+              <NumberField label="Distanza tra piante sulla fila" value={cfg.interPlant} onChange={(v) => onUpdateConfig({ interPlant: v })} min={0.8} max={3.0} step={0.1} stepQuick={0.5} unit="m" testId="input-inter-plant" />
+              <NumberField label="Capezzagna di testata (lungo fila)" value={cfg.headland} onChange={(v) => onUpdateConfig({ headland: v })} min={4} max={25} step={0.5} stepQuick={1} unit="m" testId="input-headland" hint="Distanza esatta dal bordo verde alla prima pianta lungo il filare" />
+              <NumberField label="Margine laterale (parallelo alle file)" value={cfg.sideMargin} onChange={(v) => onUpdateConfig({ sideMargin: v })} min={1} max={10} step={0.5} stepQuick={0.5} unit="m" testId="input-side-margin" />
+              <NumberField label="Lunghezza minima filare accettabile" value={cfg.minSegment} onChange={(v) => onUpdateConfig({ minSegment: v })} min={5} max={80} step={1} stepQuick={5} unit="m" testId="input-min-segment" hint="Filari più corti verranno segnalati in arancione" />
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-widest text-stone-400 font-semibold">Varietà</Label>
                 <Select value={cfg.variety} onValueChange={(v) => onUpdateConfig({ variety: v })}>
@@ -144,6 +173,14 @@ export default function SidePanel({
                   <Switch checked={showBuffers} onCheckedChange={setShowBuffers} data-testid="switch-show-buffers" />
                 </div>
               </div>
+
+              <Button
+                onClick={() => { if (onFlushSave) onFlushSave(); onOpenChange(false); }}
+                className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-2 shadow-lg shadow-emerald-500/20"
+                data-testid="btn-save-recalculate-bottom"
+              >
+                <Save className="w-4 h-4" /> Salva e Chiudi
+              </Button>
             </TabsContent>
 
             {/* ORIENTATION */}

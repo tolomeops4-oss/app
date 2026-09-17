@@ -135,37 +135,35 @@ export function generatePlan(field) {
 
   const areaGross = turf.area(fieldPoly);
 
-  let plantablePoly = sideMargin > 0 ? safeBuffer(fieldPoly, -sideMargin) : fieldPoly;
-  if (!plantablePoly) plantablePoly = fieldPoly;
+  // Row generation uses the ORIGINAL polygon (so headland trim == exact metric distance
+  // from the original green boundary along the row direction). Side margin is applied
+  // as a k-range restriction (perpendicular to rows), not as a global buffer.
+  let workPoly = fieldPoly;
 
+  // Subtract obstacle buffers
   const obstacleBuffers = [];
   for (const obs of obstacles) {
     const buf = bufferObstacleRect(obs, azimuth, obs.bufferAlong, obs.bufferSide);
     if (!buf) continue;
     obstacleBuffers.push(buf);
-    const diff = safeDifference(plantablePoly, buf);
-    if (diff) plantablePoly = diff;
+    const diff = safeDifference(workPoly, buf);
+    if (diff) workPoly = diff;
   }
 
-  const areaPlantable = turf.area(plantablePoly);
-
-  // Row direction = azimuth bearing (from North, clockwise)
-  // Perpendicular direction = azimuth + 90
   const rowBearing = norm360(azimuth);
   const perpBearing = norm360(azimuth + 90);
 
   const centroid = turf.centroid(fieldPoly);
-  const flat = flattenCoords(plantablePoly);
+  const flat = flattenCoords(workPoly);
   if (flat.length === 0) {
     return {
-      areaGross, areaPlantable, perimeter: polygonPerimeterM(fieldPoly),
-      rows: [], plantablePolygon: plantablePoly, obstacleBuffers,
+      areaGross, areaPlantable: 0, perimeter: polygonPerimeterM(fieldPoly),
+      rows: [], plantablePolygon: workPoly, obstacleBuffers,
       totalPlants: 0, validRowCount: 0, shortRowCount: 0,
       totalRowMeters: 0, minRowLength: 0, maxRowLength: 0, avgRowLength: 0, density: 0,
     };
   }
 
-  // Compute signed projections onto perpendicular direction (row spacing axis)
   const perpProjs = [];
   const alongProjs = [];
   for (const c of flat) {
@@ -182,10 +180,11 @@ export function generatePlan(field) {
   const maxAlong = Math.max(...alongProjs);
   const rowExtent = Math.max(Math.abs(minAlong), Math.abs(maxAlong)) + 200;
 
-  const rows = [];
-  const kStart = Math.ceil(minPerp / interRow);
-  const kEnd = Math.floor(maxPerp / interRow);
+  // Row k-range with sideMargin restriction (perpendicular to rows)
+  const kStart = Math.ceil((minPerp + sideMargin) / interRow);
+  const kEnd = Math.floor((maxPerp - sideMargin) / interRow);
 
+  const rows = [];
   for (let k = kStart; k <= kEnd; k++) {
     const offsetM = k * interRow;
     const bearingForOffset = offsetM >= 0 ? perpBearing : norm360(perpBearing + 180);
@@ -196,9 +195,10 @@ export function generatePlan(field) {
     const endPt = turf.destination(rowCenter, rowExtent, rowBearing, { units: "meters" });
     const line = turf.lineString([startPt.geometry.coordinates, endPt.geometry.coordinates]);
 
-    const segments = clipLineToPolygonMulti(line, plantablePoly);
+    const segments = clipLineToPolygonMulti(line, workPoly);
     for (const seg of segments) {
       const segLenM = turf.length(seg, { units: "meters" });
+      // Trim headland from both ends: distance from original polygon edge along row = headland
       if (segLenM < 2 * headland + 0.1) continue;
       const startTrim = turf.along(seg, headland, { units: "meters" });
       const endTrim = turf.along(seg, segLenM - headland, { units: "meters" });
@@ -232,12 +232,14 @@ export function generatePlan(field) {
   const validRows = rows.filter((r) => !r.isShort);
   const shortRows = rows.filter((r) => r.isShort);
   const rowLengths = rows.map((r) => r.length);
+  // Effective planted area = sum of row bands (length × interRow)
+  const areaPlantable = totalRowMeters * interRow;
 
   return {
     areaGross, areaPlantable,
     perimeter: polygonPerimeterM(fieldPoly),
     rows,
-    plantablePolygon: plantablePoly,
+    plantablePolygon: workPoly,
     obstacleBuffers,
     totalPlants,
     validRowCount: validRows.length,
