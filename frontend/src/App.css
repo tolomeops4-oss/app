@@ -1,0 +1,8 @@
+.App {
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    position: relative;
+    background: #0b0e0c;
+    color: #e5e7eb;
+}

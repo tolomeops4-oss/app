@@ -1,0 +1,223 @@
+{
+  "project_name": "Progetto Oliveto",
+  "app_type": "hybrid_fullstack (cartographic planning tool with map-centric UI, side panels/drawers, professional agricultural technical tool)",
+  "language": "it",
+  "design_personality": {
+    "archetype": "Organic & Earthy meets High-Precision Mediterranean Agronomy",
+    "fusion": [
+      "Topographic survey & cartographic precision tools (Leica Geosystems / Swiss Cadastre)",
+      "Mediterranean Olive Terracotta & Deep Olive Grove botanical aesthetics",
+      "Tactile field-ready handheld GPS command center with crystal-glass HUD controls"
+    ],
+    "emotional_tone": "Rigorous, agricultural mastery, scientific confidence, tactile clarity in sunlight or dark room",
+    "theme_mode": "dark_primary_with_satellite_contrast"
+  },
+  "typography": {
+    "font_family_headings": "Outfit, 'Plus Jakarta Sans', sans-serif",
+    "font_family_body": "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+    "font_family_mono": "'JetBrains Mono', 'Source Code Pro', monospace",
+    "font_weights": {
+      "headings": "font-bold tracking-tight",
+      "data_values": "font-mono font-semibold tracking-tight",
+      "labels": "font-semibold text-xs tracking-wider uppercase",
+      "body": "font-normal"
+    },
+    "scale": {
+      "h1": "text-2xl sm:text-3xl lg:text-4xl leading-tight font-bold",
+      "h2": "text-xl sm:text-2xl font-bold tracking-tight",
+      "h3": "text-lg sm:text-xl font-semibold",
+      "h4": "text-base sm:text-lg font-semibold",
+      "metric_hero": "text-3xl sm:text-4xl font-mono font-bold tracking-tighter",
+      "metric_sub": "text-xl sm:text-2xl font-mono font-semibold",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "caption": "text-xs text-stone-400"
+    }
+  },
+  "colors": {
+    "palette_name": "Tuscan Agronomic Slate & Olive Terra",
+    "base": {
+      "canvas_bg": "#0B0E0C",
+      "card_surface": "rgba(18, 24, 20, 0.88)",
+      "card_surface_opaque": "#121814",
+      "floating_dock_bg": "rgba(14, 20, 16, 0.92)",
+      "border_subtle": "rgba(74, 94, 80, 0.28)",
+      "border_focus": "#38E07A"
+    },
+    "brand": {
+      "olive_primary": "#2D6A4F",
+      "olive_bright": "#52B788",
+      "olive_glow": "#74C69D",
+      "tactical_emerald": "#10B981",
+      "terracotta_earth": "#D97736",
+      "terracotta_accent": "#E76F51",
+      "hydro_blue": "#0EA5E9",
+      "hydro_deep": "#0284C7",
+      "warning_amber": "#F59E0B",
+      "destructive_rust": "#EF4444"
+    },
+    "map_overlays": {
+      "field_polygon_stroke": "#38E07A",
+      "field_polygon_fill": "rgba(45, 106, 79, 0.25)",
+      "field_vertex_handle": "#FFFFFF",
+      "tree_rows_stroke": "#E76F51",
+      "tree_marker_color": "#A7F3D0",
+      "capezzagna_buffer_fill": "rgba(217, 119, 54, 0.18)",
+      "capezzagna_buffer_stroke": "#D97736",
+      "obstacle_zone_fill": "rgba(239, 68, 68, 0.25)",
+      "obstacle_buffer_stroke": "#F87171",
+      "irrigation_submain_line": "#38BDF8",
+      "irrigation_drip_line": "#0284C7"
+    },
+    "text": {
+      "heading": "#F8FAFC",
+      "body": "#D1D5DB",
+      "muted": "#9CA3AF",
+      "active_tab": "#38E07A"
+    }
+  },
+  "layout_and_spatial_strategy": {
+    "viewport_structure": "100dvh full-screen cartographic viewport with z-indexed floating tactile overlays",
+    "desktop_layout": {
+      "top_hud": "h-14 fixed top-3 left-4 right-4 z-30 flex items-center justify-between rounded-xl backdrop-blur-xl bg-stone-950/80 border border-stone-800/60 px-4 shadow-2xl",
+      "bottom_dock_toolbar": "fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-2xl backdrop-blur-2xl bg-stone-950/90 border border-stone-800/80 shadow-2xl overflow-x-auto max-w-[95vw]",
+      "side_flyout_panel": "fixed top-20 right-4 bottom-5 w-[420px] z-30 rounded-2xl backdrop-blur-2xl bg-stone-950/90 border border-stone-800/80 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300",
+      "multi_field_drawer": "fixed top-20 left-4 bottom-5 w-[340px] z-30 rounded-2xl backdrop-blur-2xl bg-stone-950/90 border border-stone-800/80 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300",
+      "compass_widget": "fixed top-20 left-4 md:left-[360px] z-20 transition-all duration-300"
+    },
+    "mobile_layout": {
+      "top_hud": "fixed top-2 left-2 right-2 h-12 z-30 flex items-center justify-between px-3 rounded-lg bg-stone-950/95 border border-stone-800 text-xs",
+      "bottom_dock_toolbar": "fixed bottom-2 left-2 right-2 z-30 flex items-center justify-start gap-1 p-1.5 rounded-xl bg-stone-950/95 border border-stone-800 overflow-x-auto no-scrollbar",
+      "sheet_panels": "shadcn Sheet or Vaul Drawer sliding from bottom taking 80dvh, allowing touch swipe to dismiss and view map underneath",
+      "touch_buttons": "min-h-[44px] min-w-[44px] px-3 py-2 text-xs flex-shrink-0"
+    }
+  },
+  "responsive": {
+    "breakpoint": "mobile-first (sm: 640px, md: 768px, lg: 1024px, xl: 1280px)",
+    "layout": "On mobile screen (<768px), sidebar panels convert into bottom sheets or collapsible modals so the satellite map remains fully interactable. Action buttons in the bottom dock have both icon and concise Italian text with horizontal scroll overflow.",
+    "typography": "Mobile-first type scale with responsive headings (text-lg to text-2xl), body text at 14px to prevent iOS auto-zoom on inputs.",
+    "overflow_guard": "Map container is locked to w-full h-[100dvh] overflow-hidden with touch-action: pan-x pan-y pinch-zoom. Side drawers and bottom sheets use internal scroll-areas with overflow-y-auto and overflow-x-hidden.",
+    "tap_targets": "Minimum 44x44px touch bounding box for every toolbar button, vertex handle, azimuth compass notch, and accordion header."
+  },
+  "interactive_components": {
+    "map_container": {
+      "engine": "Leaflet.js with react-leaflet or vanilla leaflet integration",
+      "tile_layers": [
+        {"name": "Google Satellite Hybrid", "id": "google_hybrid", "url": "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"},
+        {"name": "Google Satellite Pure", "id": "google_pure", "url": "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"},
+        {"name": "Esri World Imagery", "id": "esri_satellite", "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"},
+        {"name": "OpenStreetMap", "id": "osm_standard", "url": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
+      ],
+      "default_center": [40.8518, 14.2681],
+      "default_zoom": 17,
+      "state_controls": "Touch vertex drag, undo last point, live perimeter and area readout in m² / Ettari"
+    },
+    "touch_toolbar_buttons": [
+      {"id": "btn-new-field", "label": "Nuovo Campo", "icon": "PlusCircle", "tooltip": "Avvia tracciamento perimetro touch"},
+      {"id": "btn-undo-point", "label": "Annulla Ultimo", "icon": "Undo2", "tooltip": "Rimuove l'ultimo vertice inserito"},
+      {"id": "btn-close-field", "label": "Chiudi/Salva", "icon": "CheckCircle2", "tooltip": "Completa il poligono e calcola squadratura"},
+      {"id": "btn-add-obstacle", "label": "Agg. Ostacolo", "icon": "AlertTriangle", "tooltip": "Traccia fabbricato, traliccio o roccia da escludere"},
+      {"id": "btn-delete-boundary", "label": "Elimina Confine", "icon": "Trash2", "tooltip": "Cancella perimetro selezionato"},
+      {"id": "btn-pan-mode", "label": "Sposta Mappa", "icon": "Hand", "tooltip": "Disattiva disegno vertici per navigare"},
+      {"id": "btn-gps-position", "label": "GPS Posizione", "icon": "Crosshair", "tooltip": "Centra la mappa sulla tua posizione attuale"}
+    ],
+    "interactive_azimuth_compass": {
+      "concept": "Rotatable interactive dial with degrees (0°-350°), cardinal marks (N, NE, E, SE, S, SW, W, NW) and auto-optimizer buttons",
+      "features": [
+        "Interactive knob/slider for manual angle selection",
+        "Pulsante 'Scansione Veloce (Passo 5°)' per orientamento file a resa massima",
+        "Pulsante 'Scansione Fine (Passo 1°)' per squadratura agronomica di precisione",
+        "Visual feedback: row angle rotates in real-time over the map polygon with simulated row lines"
+      ]
+    },
+    "tab_panels": [
+      {
+        "id": "tab-config",
+        "title": "Configurazione Sesto",
+        "icon": "Settings2",
+        "controls": [
+          "Distanza interfilare (m) [default 3.8m - 4.0m per superintensivo]",
+          "Distanza tra piante (m) [default 1.2m - 1.5m]",
+          "Larghezza Capezzagna Testata (m) [default 6.0m per manovra scavallatrici]",
+          "Larghezza Capezzagna Laterale (m) [default 3.0m]",
+          "Fascia di rispetto ostacoli (m) [default 4.0m]",
+          "Varietà oliveto (Arbequina, Arbosana, Oliana, Koroneiki, Leccino Nano)"
+        ]
+      },
+      {
+        "id": "tab-irrigation",
+        "title": "Impianto Irrigazione",
+        "icon": "Droplets",
+        "controls": [
+          "Portata gocciolatore (L/h) [1.6L/h, 2.1L/h, 3.0L/h autocompensante]",
+          "Passo gocciolatori lungo l'ala (m) [0.5m, 0.75m, 1.0m]",
+          "Pressione nominale di esercizio (bar) [1.5 - 2.5 bar]",
+          "Numero di settori irrigui (1, 2, 3, 4 settori indipendenti)",
+          "Calcolo fabbisogno orario (m³/h per settore e totale)",
+          "Diametro tubazione principale/submain consigliato (mm)"
+        ]
+      },
+      {
+        "id": "tab-results",
+        "title": "Report Tecnico & Risultati",
+        "icon": "BarChart3",
+        "metrics": [
+          "Superficie Lorda Campo (m² e ha)",
+          "Superficie Netta Coltivata (dedotte capezzagne ed ostacoli)",
+          "Numero Totale Piante Oliveto Superintensivo",
+          "Densità (piante/ettaro)",
+          "Numero File e Lunghezza Totale File (m lineari)",
+          "Metri totali Ala Gocciolante e numero gocciolatori",
+          "Portata Totale Impianto Idraulico (m³/h e L/sec)",
+          "Turni e durata irrigazione consigliata"
+        ]
+      },
+      {
+        "id": "tab-obstacles",
+        "title": "Gestione Ostacoli",
+        "icon": "ShieldAlert",
+        "features": [
+          "Lista ostacoli tracciati (Fabbricato rurale, Pozzo, Traliccio AT, Roccia affiorante)",
+          "Fascia di buffer dedicata per ciascun ostacolo",
+          "Eliminazione o modifica singola"
+        ]
+      }
+    ],
+    "export_suite": {
+      "geojson": "Esportazione vettoriale completa (Perimetro campo, Capezzagne interne, Tracciato file, Ostacoli, Condotta irrigua)",
+      "csv": "Tabella distinta base: coordinate vertici, lista file con lunghezza e numero piante per fila",
+      "pdf": "Relazione tecnica agronomica client-side completa con mappa satellitare, dati catastali simulati, distinta componenti e timbro agronomico"
+    }
+  },
+  "image_assets": {
+    "olive_grove_hero": {
+      "url": "https://images.unsplash.com/photo-1784570403166-34fab692df87?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwzfHxvbGl2ZSUyMGdyb3ZlJTIwYWVyaWFsfGVufDB8fHx8MTc4OTY1MjYzNHww&ixlib=rb-4.1.0&q=85",
+      "description": "Aerial view of modern super-intensive olive orchard planted in strict neat geometric rows on reddish-brown Mediterranean soil",
+      "category": "app_header_modal_branding"
+    },
+    "apulia_fasano_olive": {
+      "url": "https://images.pexels.com/photos/19143285/pexels-photo-19143285.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Stunning aerial view of olive trees and agricultural parcels in Puglia Italy",
+      "category": "report_pdf_cover_or_background"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build the complete Progetto Oliveto application inside `/app/frontend` using React (with .jsx / .js files), Tailwind CSS, Leaflet / react-leaflet, and shadcn/ui components.",
+    "Implement the full Italian interface. All button texts, field names, tooltips, units of measurement, and error toasts MUST be in natural, professional Italian agricultural agronomy terminology.",
+    "Ensure the map starts empty with NO preloaded demo fields as requested by user choices, but provide a convenient 'Localizza la mia azienda / GPS' or quick-preset Italian olive regions (Puglia, Toscana, Sicilia, Garda) to jump coordinates rapidly.",
+    "Implement the bottom touch toolbar with high-contrast icon + Italian label (Nuovo Campo, Annulla Ultimo Punto, Chiudi/Salva Campo, Aggiungi Ostacolo, Elimina Confine, Sposta Mappa, GPS Posizione).",
+    "Support full touch interaction on mobile devices with vertex placement, dragging, undoing last point, and polygon closing.",
+    "Geometric engine for olive row calculation: Clip parallel line segments against the polygon boundary minus headland margins (capezzagne di testata e laterali) and minus obstacle buffer polygons.",
+    "Implement the interactive Azimuth Compass: Allow fine rotation (1°) via knob/slider and provide both 'Scansione Veloce (5°)' and 'Scansione Fine (1°)' auto-optimization algorithms that find the orientation yielding maximum tree density or longest continuous rows.",
+    "Implement the Drip Irrigation calculator: compute total drip tubing meters, number of emitters, required flow rate (m³/h), sector zoning (1 to 4 valves), pipe diameter recommendations, and pressure metrics.",
+    "Provide multi-field management with a slide-out drawer: create, rename, switch between multiple fields, save to MongoDB backend via FastAPI with seamless local fallback/offline tolerance.",
+    "Support complete exports: Client-side PDF technical report generator (using jspdf / html2canvas or styled printable view), GeoJSON export with all geometry layers, and CSV plant-by-plant bill of materials.",
+    "Ensure mobile-first responsiveness: On smartphone screens (<768px), floating drawers smoothly convert into bottom sliding sheets (Vaul or shadcn Sheet) so the map remains viewable and uncluttered.",
+    "CRITICAL: Always assign explicit data-testid attributes to all interactive buttons, inputs, tabs, map controls, and report values for automated testing."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "anti_ai_slop": "Do not build a generic template. Craft a tactile, military/agronomic grade GIS instrument with deep obsidian and olive slate surfaces, neon-emerald geometry highlights, and crisp monospaced telemetry figures.",
+    "no_gradients_over_saturation": "Avoid heavy saturated gradients. Use subtle dark glassmorphism (backdrop-blur-xl bg-stone-950/85), 1px micro-borders (border-stone-800/80), and razor-sharp contrast.",
+    "contrast_integrity": "Never leave transparent backgrounds on menus, popovers, or floating toolbars. Maintain APCA legible high contrast for bright daylight outdoor field usage.",
+    "strict_test_ids": "Every button, slider, tab trigger, and export action must have unambiguous data-testid attributes like 'btn-new-field', 'input-interrow-distance', 'compass-azimuth-slider', 'btn-export-pdf'."
+  }
+}
