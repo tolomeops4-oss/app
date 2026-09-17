@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Settings2 } from "lucide-react";
+import { Settings2, X, LogIn } from "lucide-react";
 import MapCanvas from "@/components/planner/MapCanvas";
 import TopBar from "@/components/planner/TopBar";
 import Toolbar from "@/components/planner/Toolbar";
@@ -12,12 +13,16 @@ import ObstacleSheet from "@/components/planner/ObstacleSheet";
 import NetworkSheet from "@/components/planner/NetworkSheet";
 import MeasureBar from "@/components/planner/MeasureBar";
 import EditPerimeterBar from "@/components/planner/EditPerimeterBar";
+import LoginDialog from "@/auth/LoginDialog";
+import { useAuth } from "@/auth/AuthContext";
 import { DEFAULT_CONFIG, DEFAULT_IRRIGATION } from "@/lib/defaults";
 import { generatePlan, computeIrrigation, polygonAreaM2, verticesToPolygon, pointsMetrics, snapToNearestRow } from "@/lib/geometry";
-import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF, parseGeoJSONForField, readFileAsText } from "@/lib/exportUtils";
+import { exportGeoJSON, exportRowsCSV, exportPlantsCSV, exportPDF, parseGeoJSONForField, readFileAsText, downloadFile } from "@/lib/exportUtils";
 import * as api from "@/lib/api";
 
 export default function Planner() {
+  const { user, loading: authLoading, loginOpen, setLoginOpen } = useAuth();
+  const location = useLocation();
   const [fields, setFields] = useState([]);
   const [activeFieldId, setActiveFieldId] = useState(null);
   const [tileLayerId, setTileLayerId] = useState("google_hybrid");
@@ -37,22 +42,26 @@ export default function Planner() {
   const [showRows, setShowRows] = useState(true);
   const [showBuffers, setShowBuffers] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
+  const [claimPromptOpen, setClaimPromptOpen] = useState(false);
+  const [pendingGuestCount, setPendingGuestCount] = useState(0);
+  const backupInputRef = useRef(null);
   const mapRef = useRef(null);
   const saveTimersRef = useRef({});
   const initLoadRef = useRef(false);
   const fieldsRef = useRef(fields);
   useEffect(() => { fieldsRef.current = fields; }, [fields]);
 
-  // Load fields
+  // Load fields — reload when auth state changes
   useEffect(() => {
-    if (initLoadRef.current) return;
-    initLoadRef.current = true;
+    if (authLoading) return;
+    setLoading(true);
     (async () => {
       try {
         const list = await api.listFields();
+        setFields(list);
         if (list.length > 0) {
-          setFields(list);
-          setActiveFieldId(list[0].id);
+          setActiveFieldId((cur) => cur && list.find((f) => f.id === cur) ? cur : list[0].id);
         } else {
           const f = await api.createField("Campo 1");
           setFields([f]);
@@ -62,7 +71,25 @@ export default function Planner() {
         toast.error("Impossibile caricare i campi dal server");
       } finally { setLoading(false); }
     })();
-  }, []);
+  }, [user?.user_id, authLoading]);
+
+  // Auth callback follow-up: if returning from Google login with guest fields present, offer to claim
+  useEffect(() => {
+    if (!user || !location.state?.claimGuest) return;
+    // Check if there are any guest fields on the server
+    (async () => {
+      try {
+        // Count ownerless fields by listing when authenticated (returns own + guest)
+        const list = await api.listFields();
+        const guestOnly = list.filter((f) => !f.ownerId);
+        if (guestOnly.length > 0) {
+          setPendingGuestCount(guestOnly.length);
+          setClaimPromptOpen(true);
+        }
+      } catch (e) {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_id]);
 
   const activeField = useMemo(() => fields.find((f) => f.id === activeFieldId), [fields, activeFieldId]);
 
@@ -498,6 +525,51 @@ export default function Planner() {
     setZoom(loc.zoom || 15);
   }, []);
 
+  // ============ Backup / Restore / Claim ============
+  const handleBackup = useCallback(async () => {
+    try {
+      const data = await api.backupFields();
+      downloadFile(
+        `progetto_oliveto_backup_${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(data, null, 2),
+        "application/json",
+      );
+      toast.success(`Backup completato (${data.count} campi)`);
+    } catch (e) { toast.error("Errore backup"); }
+  }, []);
+
+  const handleRestoreClick = useCallback(() => backupInputRef.current?.click(), []);
+
+  const handleRestoreFile = useCallback(async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await readFileAsText(f);
+      const data = JSON.parse(text);
+      if (data?.app !== "Progetto Oliveto" || !Array.isArray(data.fields)) {
+        toast.error("File non valido");
+        return;
+      }
+      if (!window.confirm(`Ripristinare ${data.fields.length} campi dal backup?`)) return;
+      const res = await api.restoreBackup(data);
+      const list = await api.listFields();
+      setFields(list);
+      toast.success(`${res.imported} campi ripristinati`);
+    } catch (e) {
+      toast.error("Errore ripristino: " + (e.message || ""));
+    } finally { if (e.target) e.target.value = ""; }
+  }, []);
+
+  const handleClaimGuest = useCallback(async () => {
+    try {
+      const res = await api.claimGuestFields();
+      const list = await api.listFields();
+      setFields(list);
+      toast.success(`${res.claimed} campi assegnati al tuo account`);
+    } catch (e) { toast.error("Errore importazione"); }
+    finally { setClaimPromptOpen(false); }
+  }, []);
+
   // ============ Import / Export ============
   const handleImportGeoJSON = useCallback(async (file) => {
     if (!activeField) return;
@@ -581,6 +653,8 @@ export default function Planner() {
         onOpenPanel={() => { setInitialPanelTab("config"); setPanelOpen(true); }}
         onSearch={handleSearch}
         onQuickLocation={handleQuickLocation}
+        onBackup={handleBackup}
+        onRestore={handleRestoreClick}
       />
 
       <Toolbar
@@ -708,6 +782,67 @@ export default function Planner() {
         onOpenChange={setNetworkSheetOpen}
         onSelectType={handleNetworkTypeSelected}
       />
+
+      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
+
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleRestoreFile}
+        className="hidden"
+        data-testid="input-restore-file"
+      />
+
+      {/* Guest banner */}
+      {!authLoading && !user && !guestBannerDismissed && (
+        <div
+          className="fixed bottom-24 md:bottom-28 left-2 md:left-4 z-20 glass-panel rounded-2xl px-3 py-2 flex items-center gap-2 max-w-xs md:max-w-sm animate-fade-in-up"
+          data-testid="guest-banner"
+        >
+          <div className="flex-1 text-[11px] leading-tight">
+            <div className="text-emerald-300 font-bold text-xs mb-0.5">Modalità Ospite</div>
+            <div className="text-stone-300">Accedi per non perdere i tuoi campi e sincronizzarli tra dispositivi.</div>
+          </div>
+          <Button
+            size="sm"
+            className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 flex-shrink-0"
+            onClick={() => setLoginOpen(true)}
+            data-testid="btn-guest-banner-login"
+          >
+            <LogIn className="w-3 h-3" /> Accedi
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-stone-400 hover:bg-stone-800 flex-shrink-0"
+            onClick={() => setGuestBannerDismissed(true)}
+            data-testid="btn-guest-banner-dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      )}
+
+      {/* Claim guest prompt */}
+      {claimPromptOpen && (
+        <div className="fixed inset-0 z-40 bg-stone-950/80 backdrop-blur-sm flex items-center justify-center px-4" data-testid="claim-guest-dialog">
+          <div className="glass-panel rounded-2xl p-5 max-w-md w-full space-y-3">
+            <h3 className="text-emerald-300 font-bold text-lg">Importa campi esistenti?</h3>
+            <p className="text-stone-300 text-sm">
+              Sono presenti <b>{pendingGuestCount}</b> campi creati come ospite. Vuoi importarli nel tuo account?
+            </p>
+            <div className="flex items-center gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setClaimPromptOpen(false)} className="text-stone-300 hover:bg-stone-800" data-testid="btn-skip-claim">
+                Ignora
+              </Button>
+              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={handleClaimGuest} data-testid="btn-confirm-claim">
+                Importa {pendingGuestCount} campi
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -1,15 +1,31 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import Planner from "@/pages/Planner";
+import AuthCallback from "@/auth/AuthCallback";
+import { AuthProvider } from "@/auth/AuthContext";
+
+function AppRouter() {
+  const location = useLocation();
+  // Read hash reactively from useLocation, not window.location.hash
+  if (location.hash?.includes("session_id=")) {
+    return <AuthCallback />;
+  }
+  return (
+    <Routes>
+      <Route path="/" element={<Planner />} />
+      <Route path="*" element={<Planner />} />
+    </Routes>
+  );
+}
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Planner />} />
-        </Routes>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
       </BrowserRouter>
       <Toaster
         position="top-center"

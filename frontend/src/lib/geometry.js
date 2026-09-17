@@ -180,13 +180,22 @@ export function generatePlan(field) {
   const maxAlong = Math.max(...alongProjs);
   const rowExtent = Math.max(Math.abs(minAlong), Math.abs(maxAlong)) + 200;
 
-  // Row k-range with sideMargin restriction (perpendicular to rows)
-  const kStart = Math.ceil((minPerp + sideMargin) / interRow);
-  const kEnd = Math.floor((maxPerp - sideMargin) / interRow);
-
+  // Row k-range with EXACT side margin from the first boundary
+  // First row lies at exactly (minPerp + sideMargin), subsequent rows spaced by interRow
+  const firstOffset = minPerp + sideMargin;
+  const lastPossibleOffset = maxPerp - sideMargin;
   const rows = [];
-  for (let k = kStart; k <= kEnd; k++) {
-    const offsetM = k * interRow;
+  if (firstOffset > lastPossibleOffset) {
+    return {
+      areaGross, areaPlantable: 0, perimeter: polygonPerimeterM(fieldPoly),
+      rows: [], plantablePolygon: workPoly, obstacleBuffers,
+      totalPlants: 0, validRowCount: 0, shortRowCount: 0,
+      totalRowMeters: 0, minRowLength: 0, maxRowLength: 0, avgRowLength: 0, density: 0,
+    };
+  }
+  const nRows = Math.floor((lastPossibleOffset - firstOffset) / interRow) + 1;
+  for (let i = 0; i < nRows; i++) {
+    const offsetM = firstOffset + i * interRow;
     const bearingForOffset = offsetM >= 0 ? perpBearing : norm360(perpBearing + 180);
     const rowCenter = Math.abs(offsetM) < 0.001
       ? centroid
@@ -198,7 +207,7 @@ export function generatePlan(field) {
     const segments = clipLineToPolygonMulti(line, workPoly);
     for (const seg of segments) {
       const segLenM = turf.length(seg, { units: "meters" });
-      // Trim headland from both ends: distance from original polygon edge along row = headland
+      // Trim headland from both ends: distance from polygon edge along row = exactly headland
       if (segLenM < 2 * headland + 0.1) continue;
       const startTrim = turf.along(seg, headland, { units: "meters" });
       const endTrim = turf.along(seg, segLenM - headland, { units: "meters" });
@@ -214,15 +223,15 @@ export function generatePlan(field) {
         d += interPlant;
       }
       const coords = trimmed.geometry.coordinates;
-      const rid = `row-${k}-${rows.length}`;
+      const rid = `row-${i}-${rows.length}`;
       rows.push({
         id: rid,
-        index: k,
+        index: i,
         start: { lat: coords[0][1], lng: coords[0][0] },
         end: { lat: coords[1][1], lng: coords[1][0] },
         length: trimmedLen,
         isShort: trimmedLen < minSegment,
-        plants: plantsCoords.map((c, i) => ({ id: `plant-${rid}-${i}`, lat: c[1], lng: c[0], rowId: rid })),
+        plants: plantsCoords.map((c, idx) => ({ id: `plant-${rid}-${idx}`, lat: c[1], lng: c[0], rowId: rid })),
       });
     }
   }

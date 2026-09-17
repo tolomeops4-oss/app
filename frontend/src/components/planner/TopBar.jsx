@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { TILE_LAYERS, QUICK_LOCATIONS } from "@/lib/defaults";
+import UserMenu from "@/auth/UserMenu";
 
 export default function TopBar({
   activeField,
@@ -14,6 +15,8 @@ export default function TopBar({
   onOpenPanel,
   onSearch,
   onQuickLocation,
+  onBackup,
+  onRestore,
 }) {
   const [q, setQ] = useState("");
   const activeLayer = TILE_LAYERS.find((t) => t.id === tileLayerId) || TILE_LAYERS[0];
@@ -124,6 +127,8 @@ export default function TopBar({
         <Compass className="w-4 h-4" />
         <span className="hidden md:inline text-xs font-semibold">Strumenti</span>
       </Button>
+
+      <UserMenu onBackup={onBackup} onRestore={onRestore} />
     </div>
   );
 }
